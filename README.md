@@ -29,7 +29,13 @@ In addition to the steps performed in `main.py`, this script also calculates the
 The script then simulates the TACBC with turbulence and calculates the PIB for the ideal case. It also generates a subplot of two images of the input and output intensities.
 
 ## Turbulence Simulation
+![Alternative Text](./ss_flow.png)
+*Figure 1: Flowchart of the Sparse Spectrum Method for Turbulence Simulation*
 
+The turbulence simulation in `main2.py` uses the sparse spectrum method to generate atmospheric turbulence screens. The sparse spectrum method is a technique for generating turbulence phase screens that are statistically similar to those produced by the Kolmogorov spectrum. It is computationally efficient and suitable for large-scale simulations.
+
+![Alternative Text](./turb.png)
+*Figure 2: Atmospheric Turbulence Screens Generated Using the Sparse Spectrum Method*
 
 ## Common Parameters for `main.py` and `main2.py`
 
