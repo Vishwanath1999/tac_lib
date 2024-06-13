@@ -1,4 +1,4 @@
-# %%
+# %% Code to simulate the TAC with only longitudinal phase noise
 from common_imports import *
 from utilities import Utilities
 from tac import TiledApertureBeamPropFast

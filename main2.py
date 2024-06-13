@@ -1,4 +1,4 @@
-# %%
+# %% Code to simulate the TAC with longitudinal phase noise and turbulence
 from common_imports import *
 from utilities import Utilities
 from tac import TiledApertureBeamProp
