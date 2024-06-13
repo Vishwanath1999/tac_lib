@@ -1,7 +1,7 @@
 # %%
 from common_imports import *
 from utilities import Utilities
-from tac import TiledApertureBeamPropFast
+from tac import TiledApertureBeamProp
 # %%
 device = T.device('cuda' if T.cuda.is_available() else 'cpu')
 # %%
@@ -28,6 +28,14 @@ if __name__ == '__main__':
 
     amp_v,g_amp = utilities.calc_ampv()
     # amp_v = 0 #Uncomment for Ideal case
+
+    L_0 = 10
+    l_0 = 10e-3
+    N_ss = 500
+    w_l = 1064e-9
+    c_n2 = 1e-13
+    k = 2*np.pi/w_l
+    n_screens = utilities.num_of_screen(k, c_n2, L, L)
 
     noise_env = utilities.env_pn(n_channel, cyc, delt)
     noise_env = np.transpose(noise_env)
@@ -56,16 +64,27 @@ if __name__ == '__main__':
     x = (im_size)/2 + rp*np.cos(theta)
     y = (im_size)/2 + rp*np.sin(theta)
 
+    r_c = 0.184*((c_n2*Z/n_screens)/w_l**2)**(-3/5)
+    turb = True
+    if turb == True:
+        print('Number of screens:',n_screens)
+        atm = np.zeros((im_size,im_size,n_screens))
+        for jj in range(n_screens):
+            atm[:,:,jj] = utilities.ss_turb(im_size,N_ss,l_0,L_0,r_c)
+        atm = T.tensor(atm).to(device)
+    else:
+        atm = None
+
 
     run = 'cl'#input('Run Mode: ')
     # if run == 'cl':
     #   G = float(input('Enter gain: '))
     pib_val = []
-    Tac = TiledApertureBeamPropFast(im_size,pix_size,n_channel,np.zeros(n_channel),Kvar,Z,trans_pn,amp_v,g_amp,a,d)
-    U_in,Up,coord = Tac.TiledAperture_2()
-    I = Tac.get_ff(Up,coord,0*np.random.randn(n_channel))
+    Tac = TiledApertureBeamProp(im_size,pix_size,n_channel,n_screens,Kvar,Z,trans_pn,atm,amp_v,g_amp,a,d,)
+    U_in, U_out = Tac.TiledAperture_2(np.zeros(n_channel)) 
+
+    I = np.abs(U_out)**2
     pib_n = np.ceil(Tac.PIB(I,im_size/2, im_size/2,rp,pix_size))
-    # masked_pib_n = np.ceil(masked_PIB(I,im_size/2, im_size/2,0.5*rp,pix_size))
     print('PIB ideal: ',pib_n)
     # print('Masked PIB ideal: ', masked_pib_n)
 
@@ -73,6 +92,14 @@ if __name__ == '__main__':
     f_ctrl = round(fs/f_loop)
     print('Control rate: ', f_ctrl)
 # %%
-plt.imshow(I,cmap='jet')
+# plt.imshow(I,cmap='jet')
+# plt.show()
+# create subplot of two images of U_in and I with jet colormap
+fig, ax = plt.subplots(1, 2)
+xp = 100
+ax[0].imshow(np.abs(U_in[im_size//2-xp:im_size//2+xp,im_size//2-xp:im_size//2+xp])**2, cmap='jet')
+ax[0].set_title('I_in')
+ax[1].imshow(I, cmap='jet')
+ax[1].set_title('I_out')
 plt.show()
 # %%

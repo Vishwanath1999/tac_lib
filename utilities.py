@@ -5,6 +5,58 @@ from scipy.io import loadmat
 class Utilities:
     def __init__(self):
         self.device = T.device('cuda' if T.cuda.is_available() else 'cpu')
+    
+    def calc_ampv(self):
+        df = 2e6
+        w = 1064e-9
+        vpi = 1.8
+        c = 2.99e8
+
+        u = c/w
+        nesp = 1
+        h = 6.626e-34
+        P0 = 100
+        g_amp = 1e4*P0/100
+        del_lamb = 10e-9
+        o_bw = c*del_lamb/(w**2)
+
+        amp_pn = (2*nesp*h*u*(g_amp-1)*o_bw)
+        amp_v = np.sqrt(amp_pn)
+        return amp_v, g_amp
+    
+    def get_ff_distance_and_bucket_size(self, n_channel, a,d):
+        """
+        Calculate the far-field distance and bucket size for a given number of channels. The far-filed distance 
+        is 10 times the Fronhauffer distance, and the bucket size is calculated based on the number of channels.
+        
+        Inputs:
+        - n_channel (int): Number of channels.
+        - a (float): Aperture size.
+        - d (float): center-to-center distance between beams.
+
+        """
+        w = 1064e-9
+        if n_channel==7:
+            NL=1
+        elif n_channel==19:
+            NL=2
+        elif n_channel==37:
+            NL=3
+        elif n_channel==61:
+            NL=4
+        elif n_channel==91:
+            NL=5
+        elif n_channel==127:
+            NL=6
+        elif n_channel==217:
+            NL=8
+        else:
+            raise ValueError("Enter Correct Number of channels..")
+        print('chosen NL:',NL)
+        Z = np.round(10*(a+2*NL*d)**2/w)
+        print('propogating ',Z,'m')
+        r = 1.22*w*Z/(a+2*NL*d)
+        return Z,r
 
     def env_pn(self, n_channel, cyc, delt):
         """
@@ -248,3 +300,4 @@ class Utilities:
 
         num = 2*math.ceil(L / del_z)
         return num
+# %%
