@@ -224,7 +224,7 @@ class TiledApertureBeamPropFast:
             FyBL[0:c,j] = FyBLc
         return FxBL,FyBL
     
-    def PropAngSpecBandLimF(self,uin,L,Dx,Dy,zmm):
+    def PropAngSpecBandLimF(self,uin,L,Dx,Dy,zmm): #TODO: To modify this function , saving H kernel
         """
         Propagate a wavefront using the bandlimited angular spectrum method.
 
@@ -514,6 +514,59 @@ class TiledApertureBeamPropFast:
 
         return U_,Up,coord.reshape(self.n_channel,2).astype(int)
     
+    def CircMask(self,shape,Xc,Yc,Roc):
+        """
+        Calculate a circular region of interest (ROI) mask on an image which will be used to calculate the Power within the ROI.
+
+        Parameters:
+        - shape (tuple): Input image shape 
+        - Xc (int): X-coordinate of the center of the circular ROI.
+        - Yc (int): Y-coordinate of the center of the circular ROI.
+        - Roc (float): Radius of the circular ROI.
+
+        Returns:
+        - Circ (numpy array): circular ROI Mask.
+
+        The circular ROI is defined by its center coordinates (Xc, Yc) and radius (Roc). The input image
+        (uin) is multiplied by a circular mask to extract the intensity within the ROI. The total power
+        within the circular ROI is computed by summing the intensities and scaling by the pixel area.
+        The function returns the total power (P) within the circular ROI as a float value.
+        """
+        sx,sy = shape[0],shape[1]
+        x = np.arange(sx)
+        y = np.arange(sy)
+
+        X,Y = np.meshgrid(x,y)
+        Circ = np.ones((sx,sy))
+        R = np.sqrt((X-Xc)**2 + (Y-Yc)**2)
+        Circ[R>Roc] = 0
+        return Circ
+
+
+    def PIB_loop(self,uin,Circ,pix_size):
+        """
+        Calculate the power within a circular region of interest (ROI) on an image.
+
+        Parameters:
+        - uin (numpy array): Input image.
+        - Circ (numpy array): ROI mask.
+        - pix_size (float): Pixel size in millimeters.
+
+        Returns:
+        - P (float): Power within the circular ROI (Circ).
+
+        This function calculates the power within a circular region of interest (ROI) on an input image.
+        The circular ROI is reused and is passed as parameter. This avoid recalulating the mask everytime an iteration is run. 
+        The input image (uin) is multiplied by a circular mask to extract the intensity within the ROI. The total power
+        within the circular ROI is computed by summing the intensities and scaling by the pixel area.
+        The function returns the total power (P) within the circular ROI as a float value.
+        """
+        IntfCir = uin*Circ
+        IntfCir1 = IntfCir*(pix_size*1e-3)**2
+        P = np.sum(IntfCir1)
+        uout = P
+        return np.real(uout)
+
     def PIB(self,uin, Xc, Yc, Roc, pix_size):
         """
         Calculate the power within a circular region of interest (ROI) on an image.
@@ -548,7 +601,7 @@ class TiledApertureBeamPropFast:
         uout = P
         return np.real(uout)
 # %%
-class TiledApertureBeamProp:
+class TiledApertureBeamProp
 
     def __init__(self,im_size,pix_size,n_channel,n_screens,Kvar,Z,trans_pn,atm,amp_v,g_amp,ra,d_):
 

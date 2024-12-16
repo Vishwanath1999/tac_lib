@@ -64,7 +64,10 @@ if __name__ == '__main__':
     Tac = TiledApertureBeamPropFast(im_size,pix_size,n_channel,np.zeros(n_channel),Kvar,Z,trans_pn,amp_v,g_amp,a,d)
     U_in,Up,coord = Tac.TiledAperture_2()
     I = Tac.get_ff(Up,coord,0*np.random.randn(n_channel))
-    pib_n = np.ceil(Tac.PIB(I,im_size/2, im_size/2,rp,pix_size))
+    pib_n = np.ceil(Tac.PIB(I,im_size/2, im_size/2,rp,pix_size)) ## Recommended for single execution 
+    roiMask = Tac.CircMask(I.shape,im_size/2,im_size/2,rp) ## For many iterations , define the mask 
+    pib_n = Tac.PIB_loop(I,roiMask,pix_size) ## and loop only this 
+
     # masked_pib_n = np.ceil(masked_PIB(I,im_size/2, im_size/2,0.5*rp,pix_size))
     print('PIB ideal: ',pib_n)
     # print('Masked PIB ideal: ', masked_pib_n)

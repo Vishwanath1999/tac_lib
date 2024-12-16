@@ -84,8 +84,10 @@ if __name__ == '__main__':
     U_in, U_out = Tac.TiledAperture_2(np.zeros(n_channel)) 
 
     I = np.abs(U_out)**2
-    pib_n = np.ceil(Tac.PIB(I,im_size/2, im_size/2,rp,pix_size))
-    print('PIB ideal: ',pib_n)
+
+    pib_n = np.ceil(Tac.PIB(I,im_size/2, im_size/2,rp,pix_size)) ## Recommended for single execution 
+    roiMask = Tac.CircMask(I.shape,im_size/2,im_size/2,rp) ## For many iterations , define the mask 
+    pib_n = Tac.PIB_loop(I,roiMask,pix_size) ## and loop only this 
     # print('Masked PIB ideal: ', masked_pib_n)
 
     f_loop = fs#5e4
