@@ -80,7 +80,7 @@ if __name__ == '__main__':
     # if run == 'cl':
     #   G = float(input('Enter gain: '))
     pib_val = []
-    Tac = TiledApertureBeamProp(im_size,pix_size,n_channel,n_screens,Kvar,Z,trans_pn,atm,amp_v,g_amp,a,d,)
+    Tac = TiledApertureBeamProp(im_size,pix_size,n_channel,n_screens,Kvar,Z,trans_pn,atm,amp_v,g_amp,a,d,) ## TODO: saving the kernel here can save a lot of time 
     U_in, U_out = Tac.TiledAperture_2(np.zeros(n_channel)) 
 
     I = np.abs(U_out)**2

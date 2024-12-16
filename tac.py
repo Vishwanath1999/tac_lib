@@ -223,8 +223,80 @@ class TiledApertureBeamPropFast:
         for j in prange(r):
             FyBL[0:c,j] = FyBLc
         return FxBL,FyBL
+
+    def PropAngSpecBandLimF_kernel(self,obj_size,L,Dx,Dy,zm): #TODO: To modify this function , saving H kernel
+        """
+        Propagate a wavefront using the bandlimited angular spectrum method.
+
+        Parameters:
+        - L (float): Wavelength of the wavefront in millimeters.
+        - Dx (float): Width of the input wavefront in millimeters.
+        - Dy (float): Height of the input wavefront in millimeters.
+        - zm (float): Propagation distance in meters.
+
+        Returns:
+        - H (torch tensor): Propagation Kernel.
+
+        This function propagates the Propagation Kerenl of the wavefront using the bandlimited angular spectrum method,
+        which essentially calculates the wavefront's Fourier transform and saves the point spread function 
+        to account for diffraction effects during propagation. The input parameters include
+        the input wavefront (uin), wavelength (L), width (Dx) and height (Dy) of the input
+        wavefront, and the propagation distance (zmm). The output is Propagation Kernel which is a torch tensor. Note that this might have more memory usage.
+        """
+        # layer = uin
+        lambda_ = L*1e-3
+        k = 2*np.pi/lambda_
+        z = zm #*1e-3
+        phy_x = Dx*1e-3
+        phy_y = Dy*1e-3
+
+        # obj_size = (self.im_size,self.im_size)
+        r,c = obj_size[0], obj_size[1]
+        Fs_x = obj_size[1]/phy_x
+        Fs_y = obj_size[0]/phy_y
+
+        dFx = Fs_x/obj_size[1]
+        dFy = Fs_y/obj_size[0]
+
+        Fx = np.arange(-Fs_x/2,Fs_x/2,dFx)
+        Fy = np.arange(-Fs_y/2,Fs_y/2,dFy)
+
+        alpha = lambda_*Fx
+        beta = lambda_*Fy
+        len_alpha = len(alpha)
+        len_beta = len(beta)
+
+        gamma = self.get_gamma(len_alpha,len_beta,alpha,beta)
+
+
+        ival = T.tensor(k*gamma*z).to(self.device)
+        H0 = T.exp(1j*ival)
+
+        Fxlim = 1/(np.sqrt(1+(2*dFx*z)**2)*lambda_)
+        Fylim = 1/(np.sqrt(1+(2*dFy*z)**2)*lambda_)
+
+        FxBL = np.zeros((len(beta),len(alpha)))
+        FyBL = np.zeros((len(beta), len(beta)))
+        FxBLr = self.rectangularPulse(-Fxlim,Fxlim,Fx)
+        FyBLc = self.rectangularPulse(-Fxlim,Fylim,Fx)
+
+        FxBL,FyBL = self.getFs(FxBL,FxBLr,FyBL,FyBLc,c,r)
+
+        FxBL = T.tensor(FxBL).to(self.device)
+        FyBL = T.tensor(FyBL).to(self.device)
+        H1 = H0*FxBL*FyBL
+        return H1
+
+    def PropAngSpecBandLimF_loop(uin,H1):
+        """
+        Uses the wavefront's Fourier transform and applies a transfer function
+        to account for diffraction effects during propagation.
+
+        """
+        return ifft2(ifftshift((fftshift(fft2(uin)))*H1))
+
     
-    def PropAngSpecBandLimF(self,uin,L,Dx,Dy,zmm): #TODO: To modify this function , saving H kernel
+    def PropAngSpecBandLimF(self,uin,L,Dx,Dy,zmm): 
         """
         Propagate a wavefront using the bandlimited angular spectrum method.
 
@@ -509,6 +581,75 @@ class TiledApertureBeamPropFast:
         phy_y = Dx
 
         Up = self.PropAngSpecBandLimF(U,lambda_,phy_x,phy_y,zmm)  #final field z_prop
+
+        # Up_f = Up.cpu().numpy()
+
+        return U_,Up,coord.reshape(self.n_channel,2).astype(int)
+    def TiledAperture_mod(self,H1): #TODO: Update the Description
+        """
+        Simulate coherent beam combining with a tiled aperture.
+
+        Returns:
+        - U_ (numpy array): Initial complex amplitude distribution of the source array.
+        - Up (torch tensor): Final complex amplitude distribution after propagation.
+        - coord (numpy array): Coordinates of the source array elements.
+
+        This function simulates coherent beam combining with a tiled aperture. It generates
+        an initial complex amplitude distribution (U_) representing the source array, propagates
+        it through atmospheric screens if provided, and computes the final complex amplitude
+        distribution (Up) after propagation. The input parameters include the size of the image
+        plane (im_size), pixel size (pix_size), number of channels (n_channel), phase noise coefficients
+        (p_n), number of atmospheric screens (n_screens), variance of the phase noise (Kvar), propagation
+        distance (Z), flag indicating whether to apply transverse phase noise (trans_pn), atmospheric
+        phase screens (atm), flag indicating whether to apply amplitude variation (amp_v), amplitude
+        variation factor (g_amp), radius of the aperture (ra), and distance between adjacent apertures (d_).
+        The function returns the initial complex amplitude distribution (U_), final complex amplitude
+        distribution after propagation (Up), and coordinates of the source array elements (coord).
+        """
+        lambda_ = 1.064*1e-3
+        Rc=1e15
+        NP=self.im_size
+        Dx=self.pix_size*NP
+        m=0
+        Ra= (self.ra/2)*1e3
+        D=self.d_*1e3
+        a=D*NP/Dx
+        mDr=0
+        w=0.85*Ra
+
+        if self.n_channel == 7:
+            NL=1
+        elif self.n_channel == 19:
+            NL = 2
+        elif self.n_channel == 37:
+            NL = 3
+        elif self.n_channel == 61:
+            NL = 4
+        elif self.n_channel == 91:
+            NL = 5
+        elif self.n_channel == 127:
+            NL = 6
+        elif self.n_channel==217:
+            NL=8
+        else:
+            ValueError('Please provide correct channel number..')
+
+        zmm = self.Z*1e3
+        zm = zmm*1e-3
+        phNs = self.p_n
+
+        w0 = w
+
+        U,coord = self.sourceTAC_final(lambda_,w0,Ra,a,NL,Dx,NP,mDr,zm,m,Rc,phNs,self.Kvar,self.trans_pn,\
+                                       self.amp_v,self.g_amp,self.n_channel)
+        U_ = U.cpu().numpy()
+        # pib_ = PIB(np.abs(U_)**2,1024,1024,1023,pix_size)
+        # print('Input Power: ', np.real(pib_))
+
+        phy_x = Dx
+        phy_y = Dx
+
+        Up = self.PropAngSpecBandLimF_loop(U,H1)  #final field z_prop
 
         # Up_f = Up.cpu().numpy()
 

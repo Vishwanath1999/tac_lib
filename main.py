@@ -62,7 +62,9 @@ if __name__ == '__main__':
     #   G = float(input('Enter gain: '))
     pib_val = []
     Tac = TiledApertureBeamPropFast(im_size,pix_size,n_channel,np.zeros(n_channel),Kvar,Z,trans_pn,amp_v,g_amp,a,d)
-    U_in,Up,coord = Tac.TiledAperture_2()
+    H1 = Tac.PropAngSpecBandLimF_kernel((im_size,im_size),lambda_,phyx,Z)) ## For Loop 
+    U_in,Up,coord = Tac.TiledAperture_2() ## Normal 
+    U_in,Up,coord = Tac.TiledAperture_mod(H1) ## For Loop 
     I = Tac.get_ff(Up,coord,0*np.random.randn(n_channel))
     pib_n = np.ceil(Tac.PIB(I,im_size/2, im_size/2,rp,pix_size)) ## Recommended for single execution 
     roiMask = Tac.CircMask(I.shape,im_size/2,im_size/2,rp) ## For many iterations , define the mask 
