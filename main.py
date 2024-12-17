@@ -56,19 +56,25 @@ if __name__ == '__main__':
     x = (im_size)/2 + rp*np.cos(theta)
     y = (im_size)/2 + rp*np.sin(theta)
 
-
+    lambda_ = 1.68 * 1e-3 
+    phyx = pix_size*im_size
     run = 'cl'#input('Run Mode: ')
     # if run == 'cl':
     #   G = float(input('Enter gain: '))
     pib_val = []
     Tac = TiledApertureBeamPropFast(im_size,pix_size,n_channel,np.zeros(n_channel),Kvar,Z,trans_pn,amp_v,g_amp,a,d)
-    H1 = Tac.PropAngSpecBandLimF_kernel((im_size,im_size),lambda_,phyx,Z)) ## For Loop 
+    H1 = Tac.PropAngSpecBandLimF_kernel((im_size,im_size),lambda_,phyx,Z) ## For Loop 
     U_in,Up,coord = Tac.TiledAperture_2() ## Normal 
     U_in,Up,coord = Tac.TiledAperture_mod(H1) ## For Loop 
+    ## Alternatively 
+    Tac.iterations_setup() ### Run this at the start of the loop 
+    Uin,Up,coord = Tac.TiledAperture_mod()
     I = Tac.get_ff(Up,coord,0*np.random.randn(n_channel))
     pib_n = np.ceil(Tac.PIB(I,im_size/2, im_size/2,rp,pix_size)) ## Recommended for single execution 
     roiMask = Tac.CircMask(I.shape,im_size/2,im_size/2,rp) ## For many iterations , define the mask 
-    pib_n = Tac.PIB_loop(I,roiMask,pix_size) ## and loop only this 
+    pib_n = Tac.PIB_loop(I,roiMask) ## and loop only this (when using different masks)
+    ### Alternatively 
+    pib_n = Tac.PIB_loop(I) ## Uses the mask from the interation setup function
 
     # masked_pib_n = np.ceil(masked_PIB(I,im_size/2, im_size/2,0.5*rp,pix_size))
     print('PIB ideal: ',pib_n)

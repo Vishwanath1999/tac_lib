@@ -1,5 +1,5 @@
 # %%
-from common_imports import *
+from tac_lib.common_imports import *
 # %%
 
 class TiledApertureBeamPropFast:
@@ -223,7 +223,12 @@ class TiledApertureBeamPropFast:
         for j in prange(r):
             FyBL[0:c,j] = FyBLc
         return FxBL,FyBL
-
+    def iterations_setup(self): #TODO: Yet to implement this
+        phy_x = self.pix_size*self.im_size
+        obj_size = (self.im_size,self.im_size)
+        lambda_ = 1.064*1e-3
+        self.H1 = self.PropAngSpecBandLimF_kernel(obj_size,lambda_,phy_x,phy_x,self.Z)
+        self.CircROI = self.CircMask(obj_size,)
     def PropAngSpecBandLimF_kernel(self,obj_size,L,Dx,Dy,zm): #TODO: To modify this function , saving H kernel
         """
         Propagate a wavefront using the bandlimited angular spectrum method.
@@ -286,13 +291,16 @@ class TiledApertureBeamPropFast:
         FyBL = T.tensor(FyBL).to(self.device)
         H1 = H0*FxBL*FyBL
         return H1
+        # self.H1 = H1 #FIXME might change ? 
 
-    def PropAngSpecBandLimF_loop(uin,H1):
+    def PropAngSpecBandLimF_loop(self,uin,H1=None):
         """
         Uses the wavefront's Fourier transform and applies a transfer function
         to account for diffraction effects during propagation.
 
         """
+        if H1 is None:
+            H1 = self.H1
         return ifft2(ifftshift((fftshift(fft2(uin)))*H1))
 
     
@@ -585,7 +593,7 @@ class TiledApertureBeamPropFast:
         # Up_f = Up.cpu().numpy()
 
         return U_,Up,coord.reshape(self.n_channel,2).astype(int)
-    def TiledAperture_mod(self,H1): #TODO: Update the Description
+    def TiledAperture_mod(self,H1=None): #TODO: Update the Description
         """
         Simulate coherent beam combining with a tiled aperture.
 
@@ -684,7 +692,7 @@ class TiledApertureBeamPropFast:
         return Circ
 
 
-    def PIB_loop(self,uin,Circ,pix_size):
+    def PIB_loop(self,uin,Circ=None):
         """
         Calculate the power within a circular region of interest (ROI) on an image.
 
@@ -702,8 +710,10 @@ class TiledApertureBeamPropFast:
         within the circular ROI is computed by summing the intensities and scaling by the pixel area.
         The function returns the total power (P) within the circular ROI as a float value.
         """
+        if Circ is None: #TODO: yet to find a better way to do this
+            Circ = self.CircROI
         IntfCir = uin*Circ
-        IntfCir1 = IntfCir*(pix_size*1e-3)**2
+        IntfCir1 = IntfCir*(self.pix_size*1e-3)**2
         P = np.sum(IntfCir1)
         uout = P
         return np.real(uout)
@@ -742,7 +752,7 @@ class TiledApertureBeamPropFast:
         uout = P
         return np.real(uout)
 # %%
-class TiledApertureBeamProp
+class TiledApertureBeamProp:
 
     def __init__(self,im_size,pix_size,n_channel,n_screens,Kvar,Z,trans_pn,atm,amp_v,g_amp,ra,d_):
 

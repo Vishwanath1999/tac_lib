@@ -18,7 +18,7 @@ pip install -r requirements.txt
 
 ### main.py
 
-The `main.py` script is used to simulate the Tiled Aperture Coherent Beam Combining (TACBC) with only longitudinal phase noise. It uses the `TiledApertureBeamPropFast` class from the `tac` module. The script sets up the simulation parameters such as the number of channels, image size, and aperture size. It then calculates the amplitude vector and phase noise. The script also initializes the control voltage and transverse phase noise. The far-field distance and bucket size are calculated and used to create an instance of the `TiledApertureBeamPropFast` class. The script then simulates the TACBC and calculates the Power In Bucket (PIB) for the ideal case.
+The `main.py` script is used to simulate the Tiled Aperture Coherent Beam Combining (TACBC) with only longitudinal phase noise. It uses the `TiledApertureBeamPropFast` class from the `tac` module from tac_lib. The script sets up the simulation parameters such as the number of channels, image size, and aperture size. It then calculates the amplitude vector and phase noise. The script also initializes the control voltage and transverse phase noise. The far-field distance and bucket size are calculated and used to create an instance of the `TiledApertureBeamPropFast` class. The script then simulates the TACBC and calculates the Power In Bucket (PIB) for the ideal case.
 
 ### main2.py
 
