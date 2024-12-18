@@ -11,7 +11,7 @@ To install the TACBC library, clone the repository and install the required depe
 ```bash
 git clone https://github.com/Vishwanath1999/tac_lib.git
 cd tac_lib
-pip install -r requirements.txt
+pip install -e . 
 ```
 
 ## Main Scripts

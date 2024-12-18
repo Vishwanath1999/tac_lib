@@ -1,5 +1,5 @@
 # %%
-from tac_lib.common_imports import *
+from common_imports import *
 from scipy.io import loadmat
 # %%
 class Utilities:
@@ -24,7 +24,7 @@ class Utilities:
         amp_v = np.sqrt(amp_pn)
         return amp_v, g_amp
     
-    def get_ff_distance_and_bucket_size(self, n_channel, a,d):
+    def get_ff_distance_and_bucket_size(self, n_channel, a,d,lens=False,fflens=None):
         """
         Calculate the far-field distance and bucket size for a given number of channels. The far-filed distance 
         is 10 times the Fronhauffer distance, and the bucket size is calculated based on the number of channels.
@@ -56,6 +56,9 @@ class Utilities:
         Z = np.round(10*(a+2*NL*d)**2/w)
         print('propogating ',Z,'m')
         r = 1.22*w*Z/(a+2*NL*d)
+        if lens:
+            r = (4 / np.pi) * w * fflens*1e-3 / (a + 2 * NL * d)
+            return fflens,r
         return Z,r
 
     def env_pn(self, n_channel, cyc, delt):
@@ -163,6 +166,57 @@ class Utilities:
         si_n = T.real(si_n1).to(self.device)
 
         return si_n.cpu().clone().detach().numpy()
+    
+    def ZernCoeff_TransvPhs(RWEH, RWEL, NumZP,n_channel):
+        KvarH = RWEH**2
+        KvarL = RWEL**2
+        abrZPC = np.zeros((n_channel, NumZP))
+        for nn in range(n_channel):
+            ZH = np.random.rand(1, 8)
+            WvarH = np.sum(ZH**2)
+            ZHn = np.sqrt(KvarH / WvarH) * ZH
+            # WvarH = np.sum(ZHn ** 2)
+            ZL = np.random.rand(1, 2)
+            WvarL = np.sum(ZL**2)
+            ZLn = np.sqrt(KvarL / WvarL) * ZL
+            # WvarL = np.sum(ZLn ** 2)
+            Rabr = np.zeros(NumZP)
+            Rabr[0:2] = ZLn.flatten()
+            Rabr[2:NumZP] = ZHn.flatten()
+            abrZPC[nn, :] = Rabr
+        return abrZPC
+    def find_centroid_coord(matrix):
+        rows, cols = np.indices(matrix.shape)
+        centroid_x = int(np.average(cols, weights=matrix))  ### Rasises Zero Division Error
+        centroid_y = int(np.average(rows, weights=matrix))
+        return centroid_x, centroid_y
+    def CircMask(self,shape,Xc,Yc,Roc):
+        """
+        Calculate a circular region of interest (ROI) mask on an image which will be used to calculate the Power within the ROI.
+
+        Parameters:
+        - shape (tuple): Input image shape 
+        - Xc (int): X-coordinate of the center of the circular ROI.
+        - Yc (int): Y-coordinate of the center of the circular ROI.
+        - Roc (float): Radius of the circular ROI.
+
+        Returns:
+        - Circ (numpy array): circular ROI Mask.
+
+        The circular ROI is defined by its center coordinates (Xc, Yc) and radius (Roc). The input image
+        (uin) is multiplied by a circular mask to extract the intensity within the ROI. The total power
+        within the circular ROI is computed by summing the intensities and scaling by the pixel area.
+        The function returns the total power (P) within the circular ROI as a float value.
+        """
+        sx,sy = shape[0],shape[1]
+        x = np.arange(sx)
+        y = np.arange(sy)
+
+        X,Y = np.meshgrid(x,y)
+        Circ = np.ones((sx,sy))
+        R = np.sqrt((X-Xc)**2 + (Y-Yc)**2)
+        Circ[R>Roc] = 0
+        return Circ
     
     def plot_pib(self,pib_val, pib_n, title=None, name=None, t=None):
         """

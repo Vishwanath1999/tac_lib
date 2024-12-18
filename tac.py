@@ -1,5 +1,5 @@
 # %%
-from tac_lib.common_imports import *
+from common_imports import *
 # %%
 class TiledApertureBeamProp:
 
@@ -554,32 +554,21 @@ class TiledApertureBeamProp:
         P = np.sum(IntfCir1)
         uout = P
         return np.real(uout)
-
+# %%
 class TiledApertureBeamPropFast(TiledApertureBeamProp):
 
-    def __init__(self,im_size,pix_size,n_channel,p_n,Kvar,Z,trans_pn,amp_v,g_amp,ra,d_):
-
-        self.device = T.device('cuda' if T.cuda.is_available() else 'cpu')
-        print(f"Using {self.device} device")
-
-        self.im_size = im_size
-        self.pix_size = pix_size
-        self.n_channel = n_channel
+    def __init__(self,im_size,pix_size,n_channel,p_n,Kvar,Z,trans_pn,amp_v,g_amp,ra,d_,iteration=False):
+        super().__init__(im_size,pix_size,n_channel,Kvar,Z,trans_pn,amp_v,g_amp,ra,d_)
         self.p_n = p_n
-        self.Kvar = Kvar
-        self.Z = Z
-        self.trans_pn = trans_pn
-        self.amp_v = amp_v
-        self.g_amp = g_amp
-        self.ra = ra
-        self.d_ = d_
+        if iteration:
+            self.iterations_setup()
   
     def iterations_setup(self): #TODO: Yet to implement this
         phy_x = self.pix_size*self.im_size
         obj_size = (self.im_size,self.im_size)
         lambda_ = 1.064*1e-3
         self.H1 = self.PropAngSpecBandLimF_kernel(obj_size,lambda_,phy_x,phy_x,self.Z)
-        self.CircROI = self.CircMask(obj_size,)
+        # self.CircROI = self.CircMask(obj_size,)
     
     def PropAngSpecBandLimF_kernel(self,obj_size,L,Dx,Dy,zm): #TODO: To modify this function , saving H kernel
         """
@@ -963,7 +952,7 @@ class TiledApertureBeamPropFast(TiledApertureBeamProp):
         P = np.sum(IntfCir1)
         uout = P
         return np.real(uout)
-
+# %%
 class TiledApertureBeamPropNested(TiledApertureBeamPropFast):
     def __init__(self, im_size, pix_size, n_channel, p_n, Kvar, Z, trans_pn, amp_v, g_amp, ra, d_):
         super().__init__(im_size, pix_size, n_channel, p_n, Kvar, Z, trans_pn, amp_v, g_amp, ra, d_)
@@ -994,3 +983,646 @@ class TiledApertureBeamPropNested(TiledApertureBeamPropFast):
     
     def get_outer_coordinates(self): #TODO
         pass 
+# %%    
+class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use 
+    def __init__(self, im_size, pix_size, n_channel, p_n, Kvar, Z, trans_pn, amp_v, g_amp, ra, d_,wx,wy,use_lens,fflens,Pxx,iteration=False):
+        super().__init__(im_size, pix_size, n_channel, p_n, Kvar, Z, trans_pn, amp_v, g_amp, ra, d_,iteration)
+        self.wx = wx
+        self.wy = wy
+        self.use_lens = use_lens
+        self.fflens = fflens
+        self.Pxx = Pxx
+
+
+    def GaussBeamNDefPsLw(self,lambda_, wx, wy, Rc, X0, Y0, Dxy, NP, m, zmm, P):  ## Here is Polarization is applied
+        s = time.time()
+        k = 2 * np.pi / lambda_
+        w0 = 0.5 * (wx + wy)
+
+        zR = np.pi * w0**2 / lambda_
+        z = zmm * 1000
+
+        M = NP
+        dx = Dxy / M
+        x = T.arange((-M / 2 - X0) * dx, (M / 2 - X0) * dx, dx)[0:NP]
+
+        N = NP
+        dy = Dxy / N
+        y = T.arange((-N / 2 - Y0) * dy, (N / 2 - Y0) * dy, dy)[0:NP]
+
+        [X, Y] = T.meshgrid(x, y, indexing="xy")
+        X = X.to(device)
+        Y = Y.to(device)
+
+        R = T.sqrt(X**2 + Y**2).to(device)
+
+        # P = 0.01
+        A = (2 * P) / (np.pi * (w0 * 1e-3) ** 2)
+
+        C = np.sqrt(A) * T.exp(1j * k * (R**2) / (2 * Rc)).to(device)
+
+        Psi = C * T.exp(-(X**2 / wx**2) - (Y**2 / wy**2))
+        uout = Psi
+        e = time.time() - s
+        # print('Gaussian_beam: ',str(e),'s')
+        return uout
+    
+    def sourceTAC_final(self,lambda_,wx,wy,Ra,a,NL,Dx,NP,zm,m,Rc,phNs,trans_pn,amp_v,g_amp,n_chan,thetar,th2d,P):
+        start = time.time()
+        k = 2 * np.pi / lambda_
+        xf = a / 2
+        yf = round(np.sqrt(3) * a / 2)
+
+        # theta = mDr
+        thetar = np.radians(thetar)
+        th2d = np.radians(th2d)
+        print(thetar)
+        kx = k * np.sin(thetar) * np.sin(th2d)[0]
+        ky = k * np.sin(thetar) * np.cos(th2d)[0]
+        # print(kx.shape)
+
+        mnE = 2 * NL + 1
+
+        zmm = zm * 1000
+
+        xs = np.arange(0, NP)
+        ys = np.arange(0, NP)
+
+        x1 = (Dx / NP) * xs
+        y1 = (Dx / NP) * ys
+        x1c = x1 - 0.5 * x1[NP - 1]
+        y1c = y1 - 0.5 * y1[NP - 1]
+        X, Y = np.meshgrid(x1c, y1c)
+
+        U = T.zeros(NP, NP, dtype=T.cfloat).to(device)
+       
+        X0 = np.arange(-2 * NL, 2 * NL + 2, 2) * xf
+        Y0 = 0 * yf
+
+        phNs1 = T.tensor(phNs)
+        n_cn = 0
+        # bsf=np.array([1.0462,  1.0308, 1.0308])
+
+        for r in range(mnE):
+            # P=0.01
+            # if (X0[r]+Y0)==0:
+            #   P=0.
+            shx = 0
+            if (X0[r] + Y0) == 0:
+                shx = 125
+
+            u0 = GaussBeamNDefPsLw(
+                lambda_, wx[n_cn], wy[n_cn], Rc, X0[r] - shx, Y0, Dx, NP, m, zmm, P[0, n_cn]
+            )
+            c0 = CirAperN(X0[r], Y0, Ra, Dx, NP)
+            # th0,rh0 = cart2pol(X-(Dx/2)-X0[r]*(Dx/NP), Y-(Dx/2)-Y0*(Dx/NP))   #Uncomment to include Transverse Abberation
+            # Rabr = np.sqrt(Kvar)*trans_pn[r,:]
+            # abrZpc = Rabr[0:10]
+            # Phabr[:,:,r] = Transverse_ph_abbrZP(abrZpc,th0,rh0,Ra)
+            # UC0[:,:,r] = np.sqrt(g_amp)*T.multiply(u0[:,:,r],Phabr[:,:,r]).to(device)
+            th0, rh0 = cart2pol(X - X0[r] * (Dx / NP), Y - Y0 * (Dx / NP))
+            Rabr = trans_pn[n_cn, :]
+            signRand = 2 * np.random.randint(0, 2, size=10) - 1
+            abrZpc = Rabr * signRand
+            Phabr = Transverse_ph_abbrZP(lambda_, abrZpc, th0, rh0, Ra)
+            UC0 = np.sqrt(g_amp) * T.multiply(u0, Phabr).to(device)
+
+            UC0 *= T.multiply(
+                T.exp(T.tensor(-1j * ky[n_cn] * (Y - (Dx / NP) * Y0))).to(device),
+                T.exp(T.tensor(1j * kx[n_cn] * (X - (Dx / NP) * X0[r]))).to(device),
+            )
+            Uel_1 = T.multiply(T.exp(1j * phNs1[n_cn]), UC0).to(device)
+            E_1i = T.real(Uel_1) + T.tensor(amp_v * T.randn(1)).to(device)
+            E_1q = T.imag(Uel_1) + T.tensor(amp_v * T.randn(1)).to(device)
+            E_1 = T.complex(E_1i, E_1q).to(device)
+            Uel = E_1 * c0
+            U += Uel * 0  ## Making it zero to allow only one beam
+            n_cn += 1
+
+        p = 1
+
+        while p <= NL:
+            X1 = np.arange(-2 * NL + p, 2 * NL - p + 2, 2) * xf
+            Y1 = p * yf
+            for q in range(mnE - p):
+                # P=0.01
+                # if q==1:
+                #   P=0
+                shy = 0.0
+                if q == 1:
+                    shy = 150
+
+                u1p = GaussBeamNDefPsLw(
+                    lambda_, wx[n_cn], wy[n_cn], Rc, X1[q], Y1, Dx, NP, m, zmm, P[0, n_cn]
+                )
+                c1p = CirAperN(X1[q], Y1, Ra, Dx, NP)
+                # th1p,rh1p = cart2pol(X-(Dx/2)-X1[q]*(Dx/NP), Y-(Dx/2)-Y1*(Dx/NP))   #Uncomment to include Transverse Abberation
+                # Rabr = np.sqrt(Kvar)*trans_pn[mnE+2*q-1,:]
+                # abrZpc = Rabr[0:10]
+                # Phabrp[:,:,q] = Transverse_ph_abbrZP(abrZpc,th1p,rh1p,Ra)
+                # uc1p[:,:,q] = np.sqrt(g_amp)*T.multiply(u1p[:,:,q],Phabrp[:,:,q]).to(device)
+                th1p, rh1p = cart2pol(
+                    X - X1[q] * (Dx / NP), Y - Y1 * (Dx / NP)
+                )  # Uncomment to include Transverse Abberation
+                Rabr = trans_pn[n_cn, :]
+                signRand = 2 * np.random.randint(0, 2, size=10) - 1
+                abrZpc = Rabr * signRand
+                Phabrp = Transverse_ph_abbrZP(lambda_, abrZpc, th1p, rh1p, Ra)
+                uc1p = np.sqrt(g_amp) * T.multiply(u1p, Phabrp).to(device)
+                # uc1p = np.sqrt(g_amp)*u1p
+                uc1p *= T.multiply(
+                    T.exp(T.tensor(-1j * ky[n_cn] * (Y - (Dx / NP) * Y1))).to(device),
+                    T.exp(T.tensor(1j * kx[n_cn] * (X - (Dx / NP) * X1[q]))).to(device),
+                )
+                Uel_1 = T.multiply(T.exp(1j * phNs1[n_cn]), uc1p).to(device)
+                E_1i = T.real(Uel_1) + T.tensor(amp_v * np.random.randn(1)).to(device)
+                E_1q = T.imag(Uel_1) + T.tensor(amp_v * np.random.randn(1)).to(device)
+                E_1 = T.complex(E_1i, E_1q).to(device)
+                Uel = E_1 * c1p
+                if p == 1 and q == 1:  # Only this beam is allowed
+                    U += Uel * 0  # to avoid double beams
+                n_cn += 1
+
+                # P=0.01
+                u1m = GaussBeamNDefPsLw(
+                    lambda_,
+                    wx[n_cn],
+                    wy[n_cn],
+                    Rc,
+                    X1[q],
+                    -Y1 + shy,
+                    Dx,
+                    NP,
+                    m,
+                    zmm,
+                    P[0, n_cn],
+                )
+                c1m = CirAperN(X1[q], -Y1, Ra, Dx, NP)
+                # th1m,rh1m = cart2pol(X-(Dx/2)-X1[q]*(Dx/NP),Y-(Dx/2)+Y1*(Dx/NP))    #Uncomment to include Transverse Abberation
+                # Rabr=np.sqrt(Kvar)*trans_pn[mnE+2*q,:]
+                # abrZpc = Rabr[0:10]
+                # Phabrm[:,:,q] = Transverse_ph_abbrZP(abrZpc,th1m,rh1m,Ra)
+                # uc1m[:,:,q] = np.sqrt(g_amp)*T.multiply(u1m[:,:,q],Phabrm[:,:,q]).to(device)
+                th1m, rh1m = cart2pol(
+                    X - X1[q] * (Dx / NP), Y + Y1 * (Dx / NP)
+                )  # Uncomment to include Transverse Abberation
+                Rabr = trans_pn[n_cn, :]
+                signRand = 2 * np.random.randint(0, 2, size=10) - 1
+                abrZpc = Rabr * signRand
+                Phabrm = Transverse_ph_abbrZP(lambda_, abrZpc, th1m, rh1m, Ra)
+                uc1m = np.sqrt(g_amp) * T.multiply(u1m, Phabrm).to(device)
+                # uc1m = np.sqrt(g_amp)*u1m
+                uc1m *= T.multiply(
+                    T.exp(T.tensor(-1j * ky[n_cn] * (Y + (Dx / NP) * Y1))).to(device),
+                    T.exp(T.tensor(1j * kx[n_cn] * (X - (Dx / NP) * X1[q]))).to(device),
+                )
+                Uel_1 = T.multiply(T.exp(1j * phNs1[n_cn]), uc1m).to(device)
+                E_1i = T.real(Uel_1) + T.tensor(amp_v * np.random.randn(1)).to(device)
+                E_1q = T.imag(Uel_1) + T.tensor(amp_v * np.random.randn(1)).to(device)
+                E_1 = T.complex(E_1i, E_1q).to(device)
+                Uel = E_1 * c1m
+                if p == 1 and q == 1:  ### Take only one beam
+                    U += Uel
+                n_cn += 1
+            p += 1
+
+        end = time.time() - start
+        # print('Source TAC:',str(end),'s')
+        uout = U
+        return uout
+    
+    def sourceTAC_mod(self,lambda_,wx,wy,Ra,a,NL,Dx,NP,mDr,Rc,phNs,Kvar,trans_pn,amp_v,g_amp,n_chan,P,):  ## This function is for single beam generation
+        k = 2 * np.pi / lambda_
+        xf = a / 2
+        yf = round(np.sqrt(3) * a / 2)
+
+        theta = mDr
+        RN1 = np.random.randint(low=0, high=100, size=(36,))
+        RN2 = np.random.randint(low=0, high=100, size=(36,))
+        theta_rx = np.radians(theta * RN1 / 100)
+        theta_ry = np.radians(theta * RN2 / 100)
+        #   kx = k*np.sin(theta_rx)
+        #   ky = k*np.sin(theta_ry)
+        xs = np.arange(0, NP)
+        ys = np.arange(0, NP)
+
+        x1 = (Dx / NP) * xs
+        y1 = (Dx / NP) * ys
+        x1c = x1 - 0.5 * x1[NP - 1]
+        y1c = y1 - 0.5 * y1[NP - 1]
+        X, Y = np.meshgrid(x1c, y1c)
+        mnE = 2 * NL + 1
+
+        X0 = np.arange(-2 * NL, 2 * NL + 2, 2, dtype=int) * int(xf)
+        Y0 = int(0 * yf)
+
+        n_cn = 0
+        uc0 = (
+            np.sqrt(g_amp)
+            * GaussBeamNDefPsLw(lambda_,wx=wx,wy=wy,Rc=Rc,X0=0,Y0=0,Dxy=Dx,NP=NP,m=None,zmm=7e6,P=P[0, n_cn])
+            * CirAperN(0, 0, Ra, Dx, NP)
+        )
+        coord = np.array([])
+        for r in range(mnE):
+            coord = np.append(coord, [X0[r], Y0])
+        p = 1
+        X1 = np.array([])
+        Y1 = np.array([])
+        shy = 150
+        while p <= NL:
+            X1 = np.arange(-2 * NL + p, 2 * NL - p + 2, 2, dtype=int) * int(xf)
+            Y1 = int(p * yf)
+            for q in range(mnE - p):
+                coord = np.append(coord, [X1[q], Y1])
+                coord = np.append(coord, [X1[q], -Y1])
+                # if p == 1 and q == 1: ### Take only one beam
+                # uc0 = np.sqrt(g_amp)*GaussBeamNDefPsLw(lambda_,wx=wx,wy=wy,Rc=Rc,X0=X1[q],Y0=-Y1+shy,Dxy=Dx,NP=NP,m=None,zmm=7e6,P=P[0,n_cn])*CirAperN(X1[q],-Y1+shy,Ra,Dx,NP)
+            p += 1
+        return uc0, coord  # *Dx/NP
+
+    def TiledAperture_beam(self,p_n,Z=None):
+        # start = time.time()
+        lambda_ = 1 * 1.064 * 1e-3  # in mm
+        Rc = 1e25
+        NP = self.im_size
+        Dx = self.pix_size * NP
+        m = 0
+        Ra = (self.ra / 2) * 1e3
+        D = self.d_ * 1e3
+        a = D * NP / Dx  ## image coordinates in pixels
+        mDr = 0
+        w = 0.85 * Ra
+
+        if self.n_channel == 7:
+            NL = 1
+        elif self.n_channel == 19:
+            NL = 2
+        elif self.n_channel == 37:
+            NL = 3
+        elif self.n_channel == 61:
+            NL = 4
+        elif self.n_channel == 91:
+            NL = 5
+        elif self.n_channel == 127:
+            NL = 6
+        elif self.n_channel == 217:
+            NL = 8
+        else:
+            ValueError("Please provide correct channel number..")
+        if Z is None:
+            Z = self.Z
+        zmm = Z* 1e3
+        # fllens = 2e5
+        zm = zmm * 1e-3
+        phNs = p_n
+        n_step = self.n_screens
+        zsmm = zmm / (n_step + 1)
+        w0 = w
+        wx = w
+        wy = w
+        U, coord = self.sourceTAC_mod(
+            lambda_,
+            wx,
+            wy,
+            Ra,
+            a,
+            NL,
+            Dx,
+            NP,
+            mDr,
+            Rc,
+            phNs,
+            self.Kvar,
+            self.trans_pn,
+            self.amp_v,
+            self.g_amp,
+            self.n_channel,
+            self.Pxx,
+        )
+
+        U_ = U.cpu().numpy()
+        # pib_ = PIB(np.abs(U_)**2,1024,1024,1023,pix_size)
+        # print('Input Power: ', np.real(pib_))
+        # use_lens = False #True
+        phy_x = Dx
+        phy_y = Dx
+        if self.use_lens:
+            # U0 = PropAngSpecBandLimF(U,lambda_,phy_x,phy_y,100) #field just before lens (after 100 mm propagation)
+            U1 = self.SphLens(
+                U, phy_x, phy_y, NP, lambda_, self.fllens
+            )  # field just after lens ##TODO: This might not be correct
+            Up = self.PropAngSpecBandLimF(
+                U1, lambda_, phy_x, phy_y, self.fllens
+            )  # final field at focal plane
+            # Up = PropAngSpecBandLimF_mod(U1,H2)#final field at focal plane
+        else:
+            Up = self.PropAngSpecBandLimF(
+                U, lambda_, phy_x, phy_y, zmm
+            )  # final field at far-field distance
+            # Up = PropAngSpecBandLimF_mod(U,H1)  #final field at far-field distance
+
+        # if atm is None:
+        #   z_prop = zmm
+        # else:
+        #   z_prop = zsmm
+        #   Up = PropAngSpecBandLimF(U,lambda_,phy_x,phy_y,z_prop)  #final field z_prop
+
+        # if atm is not None:
+        #   for ii in range(n_step):
+        #     Uat = Up*T.exp(1j*atm[:,:,ii])
+        #     Up = PropAngSpecBandLimF(Uat,lambda_,phy_x,phy_y,z_prop)
+
+        Up_f = Up.cpu().numpy()
+        Intf = np.abs(Up_f) ** 2
+
+        # end = time.time() - start
+        # print("TAC: ", str(end))
+        return Up_f, coord.reshape(self.n_channel, 2).astype(int), U_
+
+    def TiledAperture_2(self,p_n,thetar,thetad,Z=None):
+        start = time.time()
+        lambda_ = 1.064 * 1e-3
+        Rc = 1e15
+        NP = self.im_size
+        Dx = self.pix_size * NP
+
+        Dmm = self.d_ * 1e3
+        RApmm = (self.ra / 2) * 1e3
+        # w0=RApmm*0.85
+        # wmm=w*1e3
+        a = Dmm * NP / Dx
+        m = 0
+        thetar = thetar
+        thetad = thetad
+
+        if self.n_channel == 7:
+            NL = 1
+        elif self.n_channel == 19:
+            NL = 2
+        elif self.n_channel == 37:
+            NL = 3
+        elif self.n_channel == 61:
+            NL = 4
+        elif self.n_channel == 91:
+            NL = 5
+        elif self.n_channel == 127:
+            NL = 6
+        else:
+            print("Please provide correct channel number..")
+
+         # if n_channel == 7:
+        #     pib_n = 387.52
+        #     NL = 1
+        # elif n_channel == 19:
+        #     pib_n = 1042.077
+        #     NL = 2
+        # elif n_channel == 37:
+        #     pib_n = 2015.09
+        #     NL = 3
+        # elif n_channel == 61:
+        #     pib_n = 3297.03
+        #     NL = 4
+        # elif n_channel == 91:
+        #     pib_n = 4875.546
+        #     NL = 5
+        # elif n_channel == 127:
+        #     pib_n = 6710.44
+        #     NL = 6
+        # else:
+        #     raise Exception("Enter Correct Number of channels")
+        if Z is None:
+            Z = self.Z
+        zmm = Z * 1e3
+        zm = zmm * 1e-3
+        phNs = p_n
+
+        # U_ = U.cpu().numpy()
+        # U = self.sourceTAC_final(lambda_,w0,Ra,a,NL,Dx,NP,mDr,zm,m,Rc,phNs,self.Kvar,self.trans_pn,\
+        #                                self.amp_v,self.g_amp,self.n_channel)
+        U = self.sourceTAC_final(
+            lambda_,
+            self.wx,
+            self.wy,
+            RApmm,
+            a,
+            NL,
+            Dx,
+            NP,
+            zm,
+            m,
+            Rc,
+            phNs,
+            self.trans_pn,
+            self.amp_v,
+            self.g_amp,
+            self.n_channel,
+            thetar,
+            thetad,
+            self.Pxx,
+        )
+        U_ = U.cpu().clone().detach().numpy()
+        # pib_ = PIB(np.abs(U_)**2,1024,1024,1023,pix_size)
+        # print('Input Power: ', np.real(pib_))
+
+        phy_x = Dx
+        phy_y = Dx
+        if self.use_lens:
+            # U0 = PropAngSpecBandLimF(U,lambda_,phy_x,phy_y,100) #field just before lens (after 100 mm propagation)
+            U1 = SphLens(U, phy_x, phy_y, NP, lambda_, zmm)  # field just after lens
+            Up = PropAngSpecBandLimF(
+                U1, lambda_, phy_x, phy_y, zmm
+            )  # final field at focal plane
+            # Up = PropAngSpecBandLimF_mod(U1,H2)#final field at focal plane
+        else:
+            Up = PropAngSpecBandLimF(
+                U, lambda_, phy_x, phy_y, zmm
+            )  # final field at far-field distance
+            # Up = PropAngSpecBandLimF_mod(U,H1)  #final field at far-field distance
+
+        Up1 = Up.cpu().clone().detach().numpy()
+        Intf = Up1 * np.conj(Up1)
+        phase = np.angle(Up1)
+
+        end = time.time() - start
+        # print("TAC: ", str(end))
+
+        # return Up1, Intf
+        return U_, np.abs(U_) ** 2, Intf, phase
+
+
+
+    def get_ff_pib(self,U,coord: list,noise: np.ndarray,mask,pin_total,thetar=None,th2d=None,fllens=None,use_lens=True,rp=None,plot=False,fig=None):
+        phsm = noise
+        Dx = self.pix_size * self.im_size
+        im_size = self.im_size
+        Z = self.Z
+        k = 2 * np.pi / 1.064e-3  ## Wavelength in mm ## Physical Parameters
+        print(f"Z : {Z} , pix_size : {(Dx/im_size)} , k : {k}\n")
+        mask = T.tensor(mask).to(device)
+        # Cicrc = T.tensor(Circ3).to(device)
+        U_ = T.zeros_like(U).to(self.device)
+        thetar = np.radians(thetar)
+        th2d = np.radians(th2d)
+        phNs = T.tensor(noise).to(self.device)
+        Xs, Ys = U.shape
+        # X, Y = T.meshgrid(T.arange(Xs).to(device) - Xs // 2, T.arange(Ys).to(device) - Ys // 2) ## Centered at zero , to add the tilt phase
+        X, Y = np.meshgrid(np.arange(Xs) - Xs // 2, np.arange(Ys) - Ys // 2)  ## Centered at zero , to add the tilt phase
+        X, Y = X * (Dx / im_size), Y * (Dx / im_size)
+        d2 = fllens
+        d1 = 0
+        points = []
+        ubb_list = []
+        udebug = None
+        if (use_lens is False):  ### With no lens , shifting the beam in the far field for pointing error , by thetar, th2d
+            cx = (np.tan(thetar) * Z * 1e3 * np.cos(th2d) * (im_size / Dx)).T
+            # cx = (np.tan(thetar)*Z* np.cos(th2d)).T ## Physical Shift in x and y
+            cy = (np.tan(thetar) * Z * 1e3 * np.sin(th2d) * (im_size / Dx)).T
+            # cy = (np.tan(thetar)*Z* np.sin(th2d)).T
+            kx = k * np.sin(thetar) * np.sin(th2d)[0]  ## tilt phase in mm
+            ky = k * np.sin(thetar) * np.cos(th2d)[0]  ## tilt phase in mm
+            # corrected_coord = [(1,0),(1,1),(1,2),(0,0),(0,2),(2,0),(2,2)]
+            # ubb_list = []
+            for idx, c in enumerate(coord):  # 7
+                # TODO : Correct for the Propagation Delays in the other beams
+                ubb = T.exp(
+                    T.tensor(1j * kx[idx] * (X + (c[0] + cx[idx]) * Dx / im_size)).to(
+                        device
+                    )
+                ) * T.exp(
+                    T.tensor(1j * ky[idx] * (Y + (c[1] + cy[idx]) * Dx / im_size)).to(
+                        device
+                    )
+                )
+                # ubb = T.exp(T.tensor(1j * kx[idx] * (X)).to(device)) * T.exp(T.tensor(1j * ky[idx] * (Y)).to(device))
+                # ax = fig2.add_subplot(int(f"33{corrected_coord[idx]}"))
+                # ax2[corrected_coord[idx]].imshow(np.angle((ubb).cpu().numpy()),cmap='viridis')
+                # ax2[corrected_coord[idx]].set_title(f'Beam {corrected_coord[idx]}')
+                ubb_list.append((ubb).cpu().numpy())
+                ### Shift and Tilt Phase
+                U_ += (
+                    T.roll(
+                        U, shifts=(c[0] + int(cx[idx]), (c[1] + int(cy[idx]))), dims=(1, 0)
+                    )
+                    * ubb 
+                    * T.exp(1j * phNs[idx])
+                )
+                ### only Tilt Phase
+                # U_ += U*ubb*T.exp(1j*phNs[idx])
+                ## only shift
+                # U_ += T.roll(U,shifts=(c[1]+int(cy[idx]),c[0]+int(cx[idx])),dims=(0,1)) * T.exp(1j * phNs[idx])
+            pib = (
+                (
+                    T.real(T.sum((T.abs(U_) ** 2 * mask) * ((Dx / im_size) * 1e-3) ** 2))
+                    / pin_total
+                )
+                .cpu()
+                .numpy()
+            )
+            # plot = False
+            udebug = None
+            if plot:
+                # fig = plt.figure(figsize=(10, 8))
+                ax1 = fig.add_subplot(121)
+                udebug = (T.abs(U_) ** 2).cpu().numpy()
+                # ax1.imshow(udebug,cmap='viridis')
+                ax1.add_patch(
+                    plt.Circle((im_size / 2, im_size / 2), rp, fill=False, color="r")
+                )
+                ax1.add_patch(
+                    plt.Circle((im_size / 2, im_size / 2), rp * 4, fill=False, color="g")
+                )
+                ax1.text(im_size // 2, 0, f"PIB Value: {pib}", color="r", fontsize=12)
+                # ax1.colorbar()
+                for i, c in enumerate(coord):
+                    ax1.scatter(
+                        c[0] + im_size // 2 + int(cy[i]),
+                        c[1] + im_size // 2 + int(cx[i]),
+                        color="r",
+                    )
+                    points.append(
+                        (c[0] + im_size // 2 + int(cx[i]), c[1] + im_size // 2 + int(cy[i]))
+                    )
+                    # plt.xlim(im_size//2-100,im_size//2+100)
+                    # plt.ylim(im_size//2-100,im_size//2+100)
+                ax1.imshow(udebug, cmap="viridis")
+                # plt.show()
+                # plt.cla()
+            return pib, udebug, points, ubb_list
+        elif use_lens is True:  ### Lens Case
+            zmm = Z * 1e3  ## Z in mm
+            Cx = (
+                np.tan(thetar) * zmm * np.cos(th2d) * (im_size / Dx)
+            )  ## Shift intented in Far field in pixels
+            Cy = np.tan(thetar) * zmm * np.sin(th2d) * (im_size / Dx)
+            ## cx , cy will be calculated using the lens formula
+            thetax = np.arctan(Cx / (zmm * (im_size / Dx))).T
+            thetay = np.arctan(Cy / (zmm * (im_size / Dx))).T
+            for idx, c in enumerate(coord):
+                print(thetax.shape)
+                cx = (1 - (d2 / fllens)) * c[0] + (fllens * im_size / Dx) * (
+                    thetax
+                )  ## R shift in x and y pixels
+                cy = (1 - (d2 / fllens)) * c[0] + (fllens * im_size / Dx) * (thetay)
+                kx = k * np.sin(
+                    ((-(c[0] * Dx / im_size) / fllens) + (1 - (d1 / fllens)) * thetax)
+                )  ## Needs to cal in physical units of mm
+                ky = k * np.sin(
+                    ((-(c[1] * Dx / im_size) / fllens) + (1 - (d1 / fllens)) * thetay)
+                )
+                ## Debug Print
+                print(
+                    f"cx: {cx[idx]},cy:{cy[idx]} , kx: {kx.shape}"
+                )  # , c : {c[0]*Dx/im_size}, {c[1]*Dx/im_size}')
+                # print(f'x:{(c[0]+cx[idx])*Dx/im_size}, y:{(c[1]+cy[idx])*Dx/im_size}')
+                # ubb = T.exp(T.tensor(1j * kx[idx] * (X)).to(device)) * T.exp(T.tensor(1j * ky[idx] * (Y)).to(device)) ## Tilt Phase in x and y , shifted to c[0],c[1] #FIXME : Why only X and Y works , and not the shifted one , which has a higher magnitude
+                ubb = T.exp(
+                    T.tensor(-1j * kx[idx] * (X - int(cx[idx]) * Dx / im_size)).to(device) #FIXME: Findout why there is a negative sign , refer source TAC final
+                ) * T.exp(
+                    T.tensor(1j * ky[idx] * (Y - int(cy[idx]) * Dx / im_size)).to(device)
+                )  ## Tilt Phase in x and y , shifted to c[0],c[1]
+                ## Tilt and Shifted
+         
+                U_ += (T.roll(U, shifts=(int(cx[idx]), int(cy[idx])), dims=(1, 0)) * ubb * T.exp(1j * phNs[idx]))  # Tilt and Shifted 
+                
+                # U_ += T.roll(U*0,shifts=(int(cx[idx]),int(cy[idx])),dims=(1,0))#*ubb* T.exp(1j * phNs[idx])#Tilt and Shifted #FIXME: why is the shift in physical units of mm
+                #  cond = 0
+                # U_ += T.roll(U,shifts=(0,0),dims=(1,0)) * ubb * T.exp(1j * phNs[idx]) #Tilt and Shifted #FIXME: why is the shift in physical units of mm
+                # ubb_list.append((ubb).cpu().numpy())
+                
+            pib = ((T.real(T.sum((T.abs(U_) ** 2 * mask) * (Dx / im_size * 1e-3) ** 2))/ pin_total).cpu().numpy())
+            
+            if plot:
+                ax1 = fig.add_subplot(221)
+                udebug = (T.abs(U_) ** 2).cpu().numpy()
+                ax1.imshow(udebug, cmap="viridis")
+                # ax1.add_patch(plt.Circle((im_size/2,im_size/2),rp,fill=False,color='r'))
+                # ax1.add_patch(plt.Circle((im_size/2,im_size/2),rp*4,fill=False,color='g'))
+                # ax1.annotate(f"PIB Value: {str(pib)[:5]},\nPIN {str(pin_total)[:5]} \n absPIB : {str(pin_total*pib)[:5]}",xy=(im_size//2,im_size//2),xytext=(im_size//2,im_size//2+im_size//22),arrowprops=dict(facecolor='black',arrowstyle='->'))
+                ax1.set_title("FF addition Intensity")
+                # for i,c in enumerate(coord):
+                #   ax1.scatter(c[0]+im_size//2+int(cy[i]),c[1]+im_size//2+int(cx[i]),color='r')
+                #   points.append((c[0]+im_size//2+int(cx[i]),c[1]+im_size//2+int(cy[i])))
+                ax1.set_xlim(im_size // 2 - 100, im_size // 2 + 100)
+                ax1.set_ylim(im_size // 2 - 100, im_size // 2 + 100)
+                ax2 = fig.add_subplot(222)
+                ax2.imshow(np.angle((U_).cpu().numpy()), cmap="viridis")
+                # ax2.set_title('Phase Not Zoomed')
+                ax2.set_title("FF Phase Profile")
+                # ax4 = fig.add_subplot(224)
+                # ax4.imshow(np.angle(U_.cpu().numpy()),cmap='viridis')
+                # ax4.set_title('Phase Zoomed')
+                ax2.set_xlim(im_size // 2 - 100, im_size // 2 + 100)
+                ax2.set_ylim(im_size // 2 - 100, im_size // 2 + 100)
+                # ax1.colorbar()
+                # plt.show()
+                # plt.cla()
+            return pib, U_.cpu().numpy(), points, ubb_list
+    
+    def get_lens_coordinates(x, y, fllens, im_size, Dx, d2, thetax, thetay):
+
+        cx = (1 - (d2 / fllens)) * x + (fllens * im_size / Dx) * (thetax)  ## R shift in x and y pixels
+        cy = (1 - (d2 / fllens)) * y + (fllens * im_size / Dx) * (thetay)
+        return cx, cy
+    
+    def abberations_tolerance_setup(self,):
+        pass

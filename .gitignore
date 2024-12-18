@@ -1,0 +1,5 @@
+### ignoring the setup files and the cache files
+__pycache__/*
+*.pyc
+*.pyo
+tac_lib.egg-info/*
