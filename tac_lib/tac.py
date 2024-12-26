@@ -954,35 +954,429 @@ class TiledApertureBeamPropFast(TiledApertureBeamProp):
         return np.real(uout)
 # %%
 class TiledApertureBeamPropNested(TiledApertureBeamPropFast):
-    def __init__(self, im_size, pix_size, n_channel, p_n, Kvar, Z, trans_pn, amp_v, g_amp, ra, d_):
-        super().__init__(im_size, pix_size, n_channel, p_n, Kvar, Z, trans_pn, amp_v, g_amp, ra, d_)
-        self.device = T.device('cuda' if T.cuda.is_available() else 'cpu')
-        print(f"Using {self.device} device")
+    def __init__(self, im_size, pix_size, n_channel, p_n, Kvar, Z, trans_pn, amp_v, g_amp, ra, d_, iteration=False, nested=True):
+        super().__init__(im_size, pix_size, n_channel, p_n, Kvar, Z, trans_pn, amp_v, g_amp, ra, d_,iteration) ## Calls the Tilled Aperture Nested Function 
+        self.shfx = np.array([-4, -2, 0, 2, 4, -3, -3, -1, -1, 1, 1, 3, 3, -2, -2, 0, 0, 2, 2]) #### Modify the array here 
+        self.shfy = np.array([0, 0, 0, 0, 0, 1, -1, 1, -1, 1, -1, 1, -1, 2, -2, 2, -2, 2, -2])
 
-        self.im_size = im_size
-        self.pix_size = pix_size
-        self.n_channel = n_channel
-        self.p_n = p_n
-        self.Kvar = Kvar
-        self.Z = Z
-        self.trans_pn = trans_pn
-        self.amp_v = amp_v
-        self.g_amp = g_amp
-        self.ra = ra
-        self.d_ = d_
-    
+    def TiledAperture_2(self, p_n, tilt, TiltFact=0.25, f_lens_mm=2e3, fLensFull_mm=25e3):
+        """
+        Modified version of the TiledAperture_2 function to include the tilt parameter.
+        """
+        start = time.time()
+        lambda_ = 1.064 * 1e-3
+        Rc = 1e15
+        NP = self.im_size
+        Dx = self.pix_size * NP
+        m = 0
+        Ra = (self.ra / 2) * 1e3
+        D = self.d_ * 1e3
+        a = D * NP / Dx
+        mDr = 0
+        w = 0.85 * Ra
+
+        if self.n_channel == 7:
+            NL = 1
+        elif self.n_channel == 19:
+            NL = 2
+        elif self.n_channel == 37:
+            NL = 3
+        elif self.n_channel == 61:
+            NL = 4
+        elif self.n_channel == 91:
+            NL = 5
+        elif self.n_channel == 127:
+            NL = 6
+        elif self.n_channel == 217:
+            NL = 8
+        else:
+            raise ValueError('Please provide correct channel number.')
+
+        zmm = self.Z * 1e3
+        zm = zmm * 1e-3
+        phNs = p_n
+        n_step = self.n_screens
+        zsmm = zmm / (n_step + 1)
+        w0 = w
+
+        Du = (2 * NL + 1) * D - 1
+        ShMag = round(Du / self.pix_size)
+        xSf = round(ShMag / 2)
+        ySf = round(np.sqrt(3) * ShMag / 2)
+
+        ShFx = T.tensor(self.shfx, dtype=T.int16).to(self.device)
+        ShFy = T.tensor(self.shfy, dtype=T.int16).to(self.device)
+
+        Ln = 2 * (NL * D + Ra)
+        Lnp = Ln / self.pix_size
+        LnF = 2 * (Du + NL * D + Ra)
+        LnFp = LnF / self.pix_size
+
+        rPIB = 1.22 * lambda_ * zmm / LnF
+        rPIBp = rPIB / self.pix_size
+        k = 2 * np.pi / lambda_
+        rp_lens = 4 * (lambda_ * f_lens_mm) / (np.pi * Ln * self.pix_size)
+        xs = T.arange(NP).to(self.device)
+        xl = (Dx / NP) * xs
+        xlc = xl - 0.5 * xl[NP - 1]
+        X, Y = T.meshgrid(xlc, xlc, indexing='xy')
+        U = T.zeros(NP, NP, dtype=T.cfloat).to(self.device)
+        Lens = T.zeros(NP, NP, dtype=T.cfloat).to(self.device)
+        UL = T.zeros(NP, NP, dtype=T.cfloat).to(self.device)
+
+        phy_x = Dx
+        phy_y = Dx
+        array = [100]
+        for sU in range(len(ShFx)):
+            Ys = xSf * ShFx[sU]
+            Xs = ySf * ShFy[sU]
+            kx = k * T.sin(T.arctan(TiltFact * Xs * self.pix_size / zmm)) * tilt
+            ky = k * T.sin(T.arctan(TiltFact * Ys * self.pix_size / zmm)) * tilt
+            if sU in array:
+                Uab = self.sourceTAC_final(lambda_, w0, Ra, a, NL, Dx, NP, mDr, zm, m, Rc, phNs[sU], self.Kvar, self.trans_pn, self.amp_v, self.g_amp, self.n_channel)
+            else:
+                Uab = self.sourceTAC_final(lambda_, w0, Ra, a, NL, Dx, NP, mDr, zm, m, Rc, phNs[sU], self.Kvar, self.trans_pn, self.amp_v, self.g_amp, self.n_channel)
+            U += Uab * T.exp(1j * ky * (Y + Ys * self.pix_size)) * T.exp(1j * kx * (X + Xs * self.pix_size))
+            Lens += self.SphLens(Uab, phy_x, phy_y, -Xs * self.pix_size, -Ys * self.pix_size, NP, lambda_, f_lens_mm)
+
+        U_ = U.cpu().numpy()
+
+        if self.atm is None:
+            z_prop = zmm
+        else:
+            z_prop = zsmm
+
+        lens = True
+        if lens:
+            ULf = self.SphLens(U, phy_x, phy_y, 0, 0, NP, lambda_, fLensFull_mm)
+            UL = self.PropAngSpecBandLimF(Lens, lambda_, phy_x, phy_y, f_lens_mm)
+        else:
+            Up = self.PropAngSpecBandLimF(U, lambda_, phy_x, phy_y, zmm)
+        Up = self.PropAngSpecBandLimF(U, lambda_, phy_x, phy_y, zmm)
+        UL_ = UL.cpu().numpy()
+
+        if self.atm is not None:
+            for ii in range(n_step):
+                Uat = Up * T.exp(1j * self.atm[:, :, ii])
+                Up = self.PropAngSpecBandLimF(Uat, lambda_, phy_x, phy_y, z_prop)
+
+        Up_f = Up.cpu().numpy()
+        Intf = np.abs(Up_f) ** 2
+
+        end = time.time() - start
+        return U_, Up_f, Intf, UL_, (xSf * ShFx).cpu().numpy(), (ySf * ShFy).cpu().numpy(), rPIBp, rp_lens
     ## Nested PIB #TODO , redefine sourceplane tac 
-    def find_subarray_pib():
-        pass 
+    def find_sub_array_pib(self,UL,Xs,Ys,rp_lens,pib_n,units):
+        """
+        Old Implementation , where the mask is created everytime , this is not recommended if there is multiple iterations are to run 
+        """
+        inner_pib = np.zeros((units,1))
+        # xs_idx = {'0':0,'1':2,'2':1,'3':6,'4':5,'5':4,'6':3}
+        for idx in range(units):
+          I_1  = self.PIB_loop(np.power(np.abs(UL),2),self.im_size/2+Xs[idx],self.im_size/2+Ys[idx],rp_lens,self.pix_size)
+          inner_pib[idx] = I_1/pib_n
+        return inner_pib
+    def find_sub_array_pib_mod(self,U_,masks,pin_total): ## Much faster
+        """ 
+        U_ (Torch tensor)
+        masks (Torch tensor)
+        pix_size (float)
+        pin_total (float) (for normalization)
+        """
+        return (np.real(np.sum((np.abs(U_)**2 * masks) *(self.pix_size * 1e-3) ** 2,axis=(1,2)))/pin_total)#.cpu().numpy() ## dim(1,2) is dimentions that we want to sum over
     ##FIXME this 
-    def sourceTAC_final(self, lambda_, w0, Ra, a, NL, Dx, NP, mDr, zm, m, Rc, phNs, Kvar, trans_pn, amp_v, g_amp, n_chan):
-        return super().sourceTAC_final(lambda_, w0, Ra, a, NL, Dx, NP, mDr, zm, m, Rc, phNs, Kvar, trans_pn, amp_v, g_amp, n_chan)
+    def sourceTAC_final(self,lambda_,w0,Ra,a,NL,Dx,NP,mDr,zm,m,Rc,phNs,Kvar,trans_pn,amp_v,g_amp,n_channel,XsU,YsU,rotate=False):
+        """
+        Modifed sourceTAC_final function to include the XsU and YsU parameters.
+        """
+        start = time.time()
+        k = 2*np.pi/lambda_
+        xf = a/2
+        yf = round(np.sqrt(3)*a/2)
+        
+        theta = mDr
+        RN1 = np.random.randint(low=0,high=100,size=(36,))
+        RN2 = np.random.randint(low=0,high=100,size=(36,))
+        theta_rx = np.radians(theta*RN1/100)
+        theta_ry = np.radians(theta*RN2/100)
+        kx = k*np.sin(theta_rx)
+        ky = k*np.sin(theta_ry)
+        
+        mnE = 2*NL+1
+        
+        zmm = zm*1000
+        
+        # xs = T.arange(NP).to(device)
+        # xl = (Dx/NP)*xs
+        # xlc = xl - 0.5*xl[NP-1]-XsU
+        # ylc = xl - 0.5*xl[NP-1]-YsU
+        # X,Y = T.meshgrid(xlc,ylc,indexing='xy')
+        
+        U = T.zeros(NP,NP,dtype=T.cfloat).to(self.device)
+        
+        Y0 = np.arange(-2*NL,2*NL+2,2)*xf
+        X0 = 0*yf
+        
+        
+        
+        phNs1 = T.tensor(phNs)
+        n_cn = 0
+        
+        for r in range(mnE):
+          if rotate:
+            u0 = self.GaussBeamNDefPsLw(lambda_,w0,Rc,Y0[r]+YsU,X0+XsU,Dx,NP,m,zmm)[0:NP,0:NP]
+            c0 = self.CirAperN(Y0[r]+YsU,X0+XsU,Ra,Dx,NP)[0:NP,0:NP]
+          else:
+            u0 = self.GaussBeamNDefPsLw(lambda_,w0,Rc,X0+XsU,Y0[r]+YsU,Dx,NP,m,zmm)[0:NP,0:NP]
+            c0 = self.CirAperN(X0+XsU,Y0[r]+YsU,Ra,Dx,NP)[0:NP,0:NP]
+        
+          UC0 = np.sqrt(g_amp)*u0
+          Uel_1 = T.multiply(T.exp(1j*phNs1[n_cn]), UC0).to(self.device)
+          E_1i = T.real(Uel_1) + T.tensor(amp_v*T.randn(1)).to(self.device)
+          E_1q = T.imag(Uel_1) + T.tensor(amp_v*T.randn(1)).to(self.device)
+          E_1 = T.complex(E_1i,E_1q).to(self.device)
+          Uel = E_1*c0
+          U += Uel
+          n_cn += 1
+        
+        p=1
+        
+        
+        while p <= NL:
+          Y1 = np.arange(-2*NL+p,2*NL-p+2,2)*xf
+          X1 = p*yf
+          for q in range(mnE-p):
+            if rotate:
+              u1p = self.GaussBeamNDefPsLw(lambda_,w0,Rc,Y1[q]+YsU,X1+XsU,Dx,NP,m,zmm)[0:NP,0:NP]
+              c1p = self.CirAperN(Y1[q]+YsU,X1+XsU,Ra,Dx,NP)[0:NP,0:NP]
+            else:
+              u1p = self.GaussBeamNDefPsLw(lambda_,w0,Rc,X1+XsU,Y1[q]+YsU,Dx,NP,m,zmm)[0:NP,0:NP]
+              c1p = self.CirAperN(X1+XsU,Y1[q]+YsU,Ra,Dx,NP)[0:NP,0:NP]
+        
+            uc1p = np.sqrt(g_amp)*u1p
+            Uel_1 = T.multiply(T.exp(1j*phNs1[n_cn]), uc1p).to(self.device)
+            E_1i = T.real(Uel_1) + T.tensor(amp_v*np.random.randn(1)).to(self.device)
+            E_1q = T.imag(Uel_1) + T.tensor(amp_v*np.random.randn(1)).to(self.device)
+            E_1 = T.complex(E_1i,E_1q).to(self.device)
+            Uel = E_1*c1p
+        
+            U += Uel
+            n_cn += 1
+        
+            # u1m = GaussBeamNDefPsLw(lambda_,w0,Rc,-X1+XsU,Y1[q]+YsU,Dx,NP,m,zmm)[0:NP,0:NP]
+            # c1m = CirAperN(-X1+XsU,Y1[q]+YsU,Ra,Dx,NP)[0:NP,0:NP]
+            if rotate:
+              u1m = self.GaussBeamNDefPsLw(lambda_,w0,Rc,Y1[q]+YsU,-X1+XsU,Dx,NP,m,zmm)[0:NP,0:NP]
+              c1m = self.CirAperN(Y1[q]+YsU,-X1+XsU,Ra,Dx,NP)[0:NP,0:NP]
+            else:
+              u1m = self.GaussBeamNDefPsLw(lambda_,w0,Rc,-X1+XsU,Y1[q]+YsU,Dx,NP,m,zmm)[0:NP,0:NP]
+              c1m = self.CirAperN(-X1+XsU,Y1[q]+YsU,Ra,Dx,NP)[0:NP,0:NP]
+        
+            uc1m = np.sqrt(g_amp)*u1m
+            Uel_1 = T.multiply(T.exp(1j*phNs1[n_cn]),uc1m).to(self.device)
+            E_1i = T.real(Uel_1) + T.tensor(amp_v*np.random.randn(1)).to(self.device)
+            E_1q = T.imag(Uel_1) + T.tensor(amp_v*np.random.randn(1)).to(self.device)
+            E_1 = T.complex(E_1i,E_1q).to(self.device)
+            Uel = E_1*c1m
+        
+            U += Uel
+            n_cn += 1
+          p += 1
+        
+        end = time.time()-start
+        # print('Source TAC:',str(end),'s')
+        uout = U
+        
+        return uout
+    def debug_pib(self,U_):
+        try:
+            plt.figure(figsize=(10, 8))
+            plt.imshow((T.abs(U_)**2).cpu().numpy(), cmap='viridis')
+            plt.xlim(1024-100,1024+100) 
+            plt.ylim(1024-100,1024+100)
+            plt.title('Outer Loop Field ')
+            plt.colorbar()
+            plt.show()
+        except:
+            print('KeyError')
+            print('OuterLoop')
+            pass
+    def debug_pib_inner(self,U_,rplens,pib,pin_total):
+        plt.figure(figsize=(10, 8))
+        # plt.imshow((T.abs(U_)**2).cpu().numpy(), cmap='viridis')
+        udebug = (T.abs(U_)**2).cpu().numpy()
+        # udebug = cv2.bitwise_xor(udebug,pib2.cpu().numpy())
+        # contours, _ = cv2.findContours((mask.clone().cpu().numpy()).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # contour_mask = np.zeros_like(mask.clone().cpu().numpy())
+        # cv2.drawContours(udebug, contours, -1, (0, 255, 0), 2)
+        plt.imshow(udebug,cmap='viridis')
+        # pch1 =  plt.Circle((im_size/2,im_size/2),rplens,fill=False,color='r')
+        # plt.gca().add_patch(pch1)
+        plt.gca().add_patch(plt.Circle((self.im_size/2,self.im_size/2),rplens,fill=False,color='r'))
+        plt.gca().add_patch(plt.Circle((self.im_size/2,self.im_size/2),rplens*4,fill=False,color='g'))
+        # plt.xlim(im_size//2-600,im_size//2+600) 
+        # plt.ylim(im_size//2-600,im_size//2+600)
+        # plt.text(im_size//2-600,im_size//2+600,f'PIB Value: {pib}',color='r',fontsize=12)
+        plt.annotate(f"PIB Value: {str(pib)[:5]},\nPIN {str(pin_total)[:5]} \n absPIB : {str(pin_total*pib)[:5]}",xy=(self.im_size//2,self.im_size//2),xytext=(self.im_size//2,self.im_size//2+self.im_size//6),arrowprops=dict(facecolor='black',arrowstyle='->'))
+        plt.colorbar()
+        plt.show()
+        # plt.figure(figsize=(10, 8))
+        # # plt.imshow((T.abs(U_)**2).cpu().numpy(), cmap='viridis')
+        # udebug = (T.abs(U_)**2).cpu().numpy(
+        # # udebug = cv2.bitwise_xor(udebug,pib.cpu().numpy())
+        # plt.imshow(udebug,cmap='viridis'
+        # plt.gca().add_patch(plt.Circle((self.im_size/2,self.im_size/2),rplens,fill=False,color='r'))
+        # plt.gca().add_patch(plt.Circle((self.im_size/2,self.im_size/2),rplens*4,fill=False,color='g'))
+        # plt.text(self.im_size//2,0,f'PIB Value: {pib}',color='r',fontsize=12)
+        # # plt.xlim(1024-100,1024+100) 
+        # # plt.ylim(1024-100,1024+100)
+        # plt.colorbar()
+        # plt.show()
+    def debug_pib_inner_lens(self,U_,rplens,pib,pin_total,seq,coord):
+        plt.figure(figsize=(10, 8))
+        # plt.imshow((T.abs(U_)**2).cpu().numpy(), cmap='viridis')
+        udebug = (T.abs(U_)**2).cpu().numpy() 
+        # udebug = cv2.bitwise_xor(udebug,pn.cpu().numpy())
+        plt.imshow(udebug,cmap='viridis')
+        if seq:
+            pch1 =  plt.Circle((self.im_size/2,self.im_size/2),rplens,fill=False,color='r')
+            plt.gca().add_patch(pch1)
+        else:
+            # plt.imshow(T.sum((T.abs(U_)**2 * mask) *(pix_size * 1e-3) ** 2,dim=(0)).cpu().numpy())
+            for i,c in enumerate(np.array(coord)[:,1,:]):
+                # plt.scatter(c[0],c[1],c='r')
+                plt.gca().add_patch(plt.Circle((self.im_size//2+c[1],self.im_size//2+c[0]),rplens,fill=False,color='r'))
+                plt.gca().add_patch(plt.Circle((self.im_size//2+c[1],self.im_size//2+c[0]),rplens*4,fill=False,color='g'))
+                plt.annotate(f"{str(pib[i])[:5]},\nPIN {str(pin_total)[:5]},\n absPIB {str(pin_total*pib)[:5]}",xy=(self.im_size//2+c[1],self.im_size//2+c[0]),xytext=(self.im_size//2+c[1],self.im_size//2+c[0]+rplens*4),arrowprops=dict(facecolor='black',arrowstyle='->'))
+        # plt.xlim(1024-200,1024+200) 
+        # plt.ylim(1024-200,1024+200)
+        plt.title('Inner Loop Field ')
+        plt.colorbar()
+        plt.show()
+    def get_ff_pib(self,U:np.ndarray,coord:list,noise:np.ndarray,mask,pin_total,k=None,fllens = None,inner=False,use_lens=True,rplens=None,plot=False,seq=True):
+        '''
+        Modification of the get_ff function for Nested Loop Structures #TODO
+        '''
+        phsm = noise
+        mask = T.tensor(mask).to(self.device)
+        U_ = T.zeros_like(U).to(self.device)
+
+        phNs = T.tensor(noise).to(self.device)
+        Xs,Ys = U.shape
+        X, Y = T.meshgrid(T.arange(Xs).to(self.device) - Xs // 2, T.arange(Ys).to(self.device) - Ys // 2) ## Centered at zero
+        ################################################ Outer Loop ########################################################
+        if use_lens is False: ### For the Outer Loop Case with no lens
+            
+            for idx_m in range(len(coord)): # 7
+                for idx, c in enumerate(coord[idx_m]): # 7
+                    U_ += T.roll(U,shifts=(c[0],c[1]),dims=(0,1))*T.exp(1j*phNs[idx_m,idx])
+            pib2 = (T.abs(U_)**2 * mask) *(self.pix_size * 1e-3) ** 2#.cpu().numpy()
+            pib = (T.real(T.sum(pib2))/pin_total).cpu().numpy() 
+            if plot:
+                self.debug_pib_inner(U_,rplens,pib,pin_total) ### Debugging the Outer Loop Field
+            else:
+                pass
+
+        ############################################ Outer Loop with Lens ##################################################      
+        elif use_lens is True and inner is False: ### For the Outer Loop Lens Case
+            
+            for idx_m in range(len(coord)):
+                for idx, c in enumerate(coord[idx_m]):
+                    kx = k * T.sin(T.tensor(-c[0] * self.pix_size * 1e-3 / fllens))
+                    ky = k * T.sin(T.tensor(-c[1] * self.pix_size * 1e-3 / fllens))
+                    ubb = T.exp(1j * kx * X * self.pix_size) * T.exp(1j * ky * Y * self.pix_size)
+                    U_ += U * ubb * T.exp(1j * phNs[idx_m, idx])
+
+            self.debug_pib(U_) ### Debugging the Outer Loop Field   
+            pib2 = (T.abs(U_)**2 * mask)# *(pix_size * 1e-3) ** 2#.cpu().numpy()
+            pib = (T.real(T.sum(pib2 *(self.pix_size *1e-3) **2 ))).cpu().numpy()
+            print(f"Outer PIB : {pib}")
+            print(f"Input Power :{pin_total}\n")
+            pib = pib / pin_total   
+            if plot:
+                self.debug_pib_inner(U_) ### Debugging the Inner Loop Field
+            else:
+                pass
+            # pib = (T.real(T.sum(pib))/pin_total).cpu().numpy()
+
+        ################################################ Inner Loop ########################################################
+        elif use_lens is True and inner is True :  ### For the Inner Loop with lens 
+
+            U_2 = T.zeros_like(U).to(self.device)
+            Xs,Ys = U.shape
+            Kx = k * T.sin(T.tensor(-(np.array(coord)[0,:,0]) * self.pix_size * 1e-3 / fllens)) ## Calcualte the kx and ky for the Center inner array (Once)
+            Ky = k * T.sin(T.tensor(-(np.array(coord)[0,:,1]) * self.pix_size * 1e-3 / fllens))
+            # print(Kx,Ky)
+            pib = []
+            timepib2 = time.time()
+            for idx_m in range(7): # 7  
+                U_2 = T.zeros_like(U).to(self.device)
+                for idx, c in enumerate(coord[idx_m]):
+                    ## translate to inner array center
+                    U_2 += U*T.exp(1j * Kx[idx] * (X) * self.pix_size) * T.exp(1j * Ky[idx] * (Y) * self.pix_size)*T.exp(1j * phNs[idx_m, idx])
+                #TODO: PIB mask here
+                if seq: ## Less memory usage, single mask calculation
+                    timepib = time.time()
+                    pn = (T.abs(U_2)**2 * mask) *(self.pix_size * 1e-3) ** 2
+                    # print(f" Inner Input Power: {pin_total}\n")
+                    pib.append((T.real(T.sum(pn))/pin_total).cpu().numpy())
+                #   pib.append((T.real(T.sum(pn))).cpu().numpy())
+                    # print(f"Inner array PIB : {pib[-1]}")
+                    print(f"Time taken for single PIB : {time.time()-timepib}")
+                U_ += T.roll(U_2,shifts=(np.array(coord)[idx_m,1,0],np.array(coord)[idx_m,1,1]),dims=(0,1)) ## Roll the array to the center of the outer arrays   
+            #TODO : PIB on U_
+            if seq != True: ## uses ufunc to calculate PIB 
+                timepib = time.time()
+                print(f"Inner Input Power: {pin_total.shape}\n")
+                pib = (T.real(T.sum((T.abs(U_)**2 * mask) *(self.pix_size * 1e-3) ** 2,dim=(1,2)))/pin_total).cpu().numpy() ## dim(1,2) is dimentions that we want to sum over
+                print(f"Time taken for PIB array : {time.time()-timepib}") 
+            else:
+                pib = np.array(pib)
+            print(f"Time Taken for seq PIb : {time.time()-timepib2}")
+            if plot:
+                self.debug_pib_inner_lens(U_,rplens,pib,pin_total,seq,coord) ### Debugging the Inner Loop Field
+                
+        return pib
+
     
-    def get_ff(self, U, coord, noise): #FIXME #TODO 
-        return super().get_ff(U, coord, noise)
-    
-    def get_outer_coordinates(self): #TODO
-        pass 
+    def get_outer_coordinates(self,NL,
+                            D,#seperation of the mirror in mm
+                            ra, #in m
+                            Z,#in m
+                            pix_size,
+                            f_lens_mm, #in mm
+                            Du=None,
+                            inner=False):
+        lambda_ = 1.064 * 1e-3 
+        # Du = (2 * NL + 1) * D + 1  ### Unit mm Seperation of the Mirror 
+        print('Using Du',Du)
+        ShMag = round(Du / pix_size)
+        xSf = round(ShMag / 2)  ### Unit Seperation in X
+        ySf = round(np.sqrt(3) * ShMag / 2)     
+        ShFx = self.shfx#np.array([0, 2, -2, 1, -1, 1, -1])
+  #      Encodes the Structure
+        ShFy = self.shfy#np.array([0, 0, 0, 1, 1, -1, -1])
+        Xs = xSf * ShFx  ## Shift in X
+        Ys = ySf * ShFy
+        coords = [(y,x) for x,y in zip(Xs,Ys)]
+        # coords = []
+        # for sU in range(7):
+        #     Xs = xSf * ShFx[sU]  ## Shift in X
+        #     Ys = ySf * ShFy[sU]
+        #     coords.append([Xs, Ys])       
+        zmm = Z * 1e3 ## to mm
+        Ra = (ra / 2) * 1e3 ## mm
+        Ln = 2 * (NL * D + Ra) #mm
+        LnF = 2 * (Du + NL * D + Ra) ## mm
+        # print(LnF)
+        rPIB = 1.22 * lambda_ * zmm / LnF
+        rPIBp = rPIB / pix_size
+        # TiltFact = 0.25
+        if inner:
+            rp_lens = 4 * (lambda_ * f_lens_mm) / (np.pi * Ln * pix_size)
+        else:
+            rp_lens = 4 * (lambda_ * f_lens_mm) / (np.pi * LnF * pix_size)
+        return coords,rp_lens,rPIBp#/pix_size,rPIBp
 # %%    
 class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use 
     def __init__(self, im_size, pix_size, n_channel, p_n, Kvar, Z, trans_pn, amp_v, g_amp, ra, d_,wx,wy,use_lens,fflens,Pxx,iteration=False):
