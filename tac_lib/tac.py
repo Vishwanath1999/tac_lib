@@ -1,5 +1,5 @@
 # %%
-from common_imports import *
+from .common_imports import *
 # %%
 class TiledApertureBeamProp:
 
@@ -162,10 +162,10 @@ class TiledApertureBeamProp:
         """
         M = NP
         dx = Dx/M
-        x = T.arange((-M/2 - X1)*dx, (M/2 - X1)*dx,dx).to(self.device)
+        x = T.arange((-M/2 - X1)*dx, (M/2 - X1)*dx,dx)[0:NP].to(self.device) #TODO:check later there was a size mismatch
         N=NP
         dy = Dx/N
-        y = T.arange((-N/2 - Y1)*dy, (N/2 - Y1)*dy,dy).to(self.device)
+        y = T.arange((-N/2 - Y1)*dy, (N/2 - Y1)*dy,dy)[0:NP].to(self.device)
         [X,Y] = T.meshgrid(x,y,indexing='xy')
         s = time.time()
         A = T.ones(X.shape,dtype=T.int16).to(self.device)
@@ -558,7 +558,7 @@ class TiledApertureBeamProp:
 class TiledApertureBeamPropFast(TiledApertureBeamProp):
 
     def __init__(self,im_size,pix_size,n_channel,p_n,Kvar,Z,trans_pn,amp_v,g_amp,ra,d_,iteration=False):
-        super().__init__(im_size,pix_size,n_channel,Kvar,Z,trans_pn,amp_v,g_amp,ra,d_)
+        super().__init__(im_size,pix_size,n_channel,0,Kvar,Z,trans_pn,0,amp_v,g_amp,ra,d_) ## The zeros are for no atm and no n_screens
         self.p_n = p_n
         if iteration:
             self.iterations_setup()
@@ -1011,15 +1011,15 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
         y = T.arange((-N / 2 - Y0) * dy, (N / 2 - Y0) * dy, dy)[0:NP]
 
         [X, Y] = T.meshgrid(x, y, indexing="xy")
-        X = X.to(device)
-        Y = Y.to(device)
+        X = X.to(self.device)
+        Y = Y.to(self.device)
 
-        R = T.sqrt(X**2 + Y**2).to(device)
+        R = T.sqrt(X**2 + Y**2).to(self.device)
 
         # P = 0.01
         A = (2 * P) / (np.pi * (w0 * 1e-3) ** 2)
 
-        C = np.sqrt(A) * T.exp(1j * k * (R**2) / (2 * Rc)).to(device)
+        C = np.sqrt(A) * T.exp(1j * k * (R**2) / (2 * Rc)).to(self.device)
 
         Psi = C * T.exp(-(X**2 / wx**2) - (Y**2 / wy**2))
         uout = Psi
@@ -1029,6 +1029,7 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
     
     def sourceTAC_final(self,lambda_,wx,wy,Ra,a,NL,Dx,NP,zm,m,Rc,phNs,trans_pn,amp_v,g_amp,n_chan,thetar,th2d,P):
         start = time.time()
+        device = self.device
         k = 2 * np.pi / lambda_
         xf = a / 2
         yf = round(np.sqrt(3) * a / 2)
@@ -1071,20 +1072,18 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
             if (X0[r] + Y0) == 0:
                 shx = 125
 
-            u0 = GaussBeamNDefPsLw(
-                lambda_, wx[n_cn], wy[n_cn], Rc, X0[r] - shx, Y0, Dx, NP, m, zmm, P[0, n_cn]
-            )
-            c0 = CirAperN(X0[r], Y0, Ra, Dx, NP)
+            u0 = self.GaussBeamNDefPsLw(lambda_, wx[n_cn], wy[n_cn], Rc, X0[r] - shx, Y0, Dx, NP, m, zmm, P[0, n_cn])
+            c0 = self.CirAperN(X0[r], Y0, Ra, Dx, NP)
             # th0,rh0 = cart2pol(X-(Dx/2)-X0[r]*(Dx/NP), Y-(Dx/2)-Y0*(Dx/NP))   #Uncomment to include Transverse Abberation
             # Rabr = np.sqrt(Kvar)*trans_pn[r,:]
             # abrZpc = Rabr[0:10]
             # Phabr[:,:,r] = Transverse_ph_abbrZP(abrZpc,th0,rh0,Ra)
             # UC0[:,:,r] = np.sqrt(g_amp)*T.multiply(u0[:,:,r],Phabr[:,:,r]).to(device)
-            th0, rh0 = cart2pol(X - X0[r] * (Dx / NP), Y - Y0 * (Dx / NP))
+            th0, rh0 = self.cart2pol(X - X0[r] * (Dx / NP), Y - Y0 * (Dx / NP))
             Rabr = trans_pn[n_cn, :]
             signRand = 2 * np.random.randint(0, 2, size=10) - 1
             abrZpc = Rabr * signRand
-            Phabr = Transverse_ph_abbrZP(lambda_, abrZpc, th0, rh0, Ra)
+            Phabr = self.Transverse_ph_abbrZP(lambda_, abrZpc, th0, rh0, Ra)
             UC0 = np.sqrt(g_amp) * T.multiply(u0, Phabr).to(device)
 
             UC0 *= T.multiply(
@@ -1096,7 +1095,7 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
             E_1q = T.imag(Uel_1) + T.tensor(amp_v * T.randn(1)).to(device)
             E_1 = T.complex(E_1i, E_1q).to(device)
             Uel = E_1 * c0
-            U += Uel * 0  ## Making it zero to allow only one beam
+            U += Uel #* 0  ## Making it zero to allow only one beam
             n_cn += 1
 
         p = 1
@@ -1112,22 +1111,22 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
                 if q == 1:
                     shy = 150
 
-                u1p = GaussBeamNDefPsLw(
+                u1p = self.GaussBeamNDefPsLw(
                     lambda_, wx[n_cn], wy[n_cn], Rc, X1[q], Y1, Dx, NP, m, zmm, P[0, n_cn]
                 )
-                c1p = CirAperN(X1[q], Y1, Ra, Dx, NP)
+                c1p = self.CirAperN(X1[q], Y1, Ra, Dx, NP)
                 # th1p,rh1p = cart2pol(X-(Dx/2)-X1[q]*(Dx/NP), Y-(Dx/2)-Y1*(Dx/NP))   #Uncomment to include Transverse Abberation
                 # Rabr = np.sqrt(Kvar)*trans_pn[mnE+2*q-1,:]
                 # abrZpc = Rabr[0:10]
                 # Phabrp[:,:,q] = Transverse_ph_abbrZP(abrZpc,th1p,rh1p,Ra)
                 # uc1p[:,:,q] = np.sqrt(g_amp)*T.multiply(u1p[:,:,q],Phabrp[:,:,q]).to(device)
-                th1p, rh1p = cart2pol(
+                th1p, rh1p = self.cart2pol(
                     X - X1[q] * (Dx / NP), Y - Y1 * (Dx / NP)
                 )  # Uncomment to include Transverse Abberation
                 Rabr = trans_pn[n_cn, :]
                 signRand = 2 * np.random.randint(0, 2, size=10) - 1
                 abrZpc = Rabr * signRand
-                Phabrp = Transverse_ph_abbrZP(lambda_, abrZpc, th1p, rh1p, Ra)
+                Phabrp = self.Transverse_ph_abbrZP(lambda_, abrZpc, th1p, rh1p, Ra)
                 uc1p = np.sqrt(g_amp) * T.multiply(u1p, Phabrp).to(device)
                 # uc1p = np.sqrt(g_amp)*u1p
                 uc1p *= T.multiply(
@@ -1139,12 +1138,12 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
                 E_1q = T.imag(Uel_1) + T.tensor(amp_v * np.random.randn(1)).to(device)
                 E_1 = T.complex(E_1i, E_1q).to(device)
                 Uel = E_1 * c1p
-                if p == 1 and q == 1:  # Only this beam is allowed
-                    U += Uel * 0  # to avoid double beams
+                # if p == 1 and q == 1:  # Only this beam is allowed
+                U += Uel #* 0  # to avoid double beams
                 n_cn += 1
 
                 # P=0.01
-                u1m = GaussBeamNDefPsLw(
+                u1m = self.GaussBeamNDefPsLw(
                     lambda_,
                     wx[n_cn],
                     wy[n_cn],
@@ -1157,19 +1156,19 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
                     zmm,
                     P[0, n_cn],
                 )
-                c1m = CirAperN(X1[q], -Y1, Ra, Dx, NP)
+                c1m = self.CirAperN(X1[q], -Y1, Ra, Dx, NP)
                 # th1m,rh1m = cart2pol(X-(Dx/2)-X1[q]*(Dx/NP),Y-(Dx/2)+Y1*(Dx/NP))    #Uncomment to include Transverse Abberation
                 # Rabr=np.sqrt(Kvar)*trans_pn[mnE+2*q,:]
                 # abrZpc = Rabr[0:10]
                 # Phabrm[:,:,q] = Transverse_ph_abbrZP(abrZpc,th1m,rh1m,Ra)
                 # uc1m[:,:,q] = np.sqrt(g_amp)*T.multiply(u1m[:,:,q],Phabrm[:,:,q]).to(device)
-                th1m, rh1m = cart2pol(
+                th1m, rh1m = self.cart2pol(
                     X - X1[q] * (Dx / NP), Y + Y1 * (Dx / NP)
                 )  # Uncomment to include Transverse Abberation
                 Rabr = trans_pn[n_cn, :]
                 signRand = 2 * np.random.randint(0, 2, size=10) - 1
                 abrZpc = Rabr * signRand
-                Phabrm = Transverse_ph_abbrZP(lambda_, abrZpc, th1m, rh1m, Ra)
+                Phabrm = self.Transverse_ph_abbrZP(lambda_, abrZpc, th1m, rh1m, Ra)
                 uc1m = np.sqrt(g_amp) * T.multiply(u1m, Phabrm).to(device)
                 # uc1m = np.sqrt(g_amp)*u1m
                 uc1m *= T.multiply(
@@ -1181,8 +1180,8 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
                 E_1q = T.imag(Uel_1) + T.tensor(amp_v * np.random.randn(1)).to(device)
                 E_1 = T.complex(E_1i, E_1q).to(device)
                 Uel = E_1 * c1m
-                if p == 1 and q == 1:  ### Take only one beam
-                    U += Uel
+                # if p == 1 and q == 1:  ### Take only one beam
+                U += Uel
                 n_cn += 1
             p += 1
 
@@ -1219,8 +1218,8 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
         n_cn = 0
         uc0 = (
             np.sqrt(g_amp)
-            * GaussBeamNDefPsLw(lambda_,wx=wx,wy=wy,Rc=Rc,X0=0,Y0=0,Dxy=Dx,NP=NP,m=None,zmm=7e6,P=P[0, n_cn])
-            * CirAperN(0, 0, Ra, Dx, NP)
+            * self.GaussBeamNDefPsLw(lambda_,wx=wx,wy=wy,Rc=Rc,X0=0,Y0=0,Dxy=Dx,NP=NP,m=None,zmm=7e6,P=P[0, n_cn])
+            * self.CirAperN(0, 0, Ra, Dx, NP)
         )
         coord = np.array([])
         for r in range(mnE):
@@ -1309,10 +1308,10 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
         if self.use_lens:
             # U0 = PropAngSpecBandLimF(U,lambda_,phy_x,phy_y,100) #field just before lens (after 100 mm propagation)
             U1 = self.SphLens(
-                U, phy_x, phy_y, NP, lambda_, self.fllens
+                U, phy_x, phy_y, NP, lambda_, self.fflens
             )  # field just after lens ##TODO: This might not be correct
             Up = self.PropAngSpecBandLimF(
-                U1, lambda_, phy_x, phy_y, self.fllens
+                U1, lambda_, phy_x, phy_y, self.fflens
             )  # final field at focal plane
             # Up = PropAngSpecBandLimF_mod(U1,H2)#final field at focal plane
         else:
@@ -1390,8 +1389,7 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
         #     NL = 6
         # else:
         #     raise Exception("Enter Correct Number of channels")
-        if Z is None:
-            Z = self.Z
+        Z =  self.Z if Z is None else Z
         zmm = Z * 1e3
         zm = zmm * 1e-3
         phNs = p_n
@@ -1428,13 +1426,13 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
         phy_y = Dx
         if self.use_lens:
             # U0 = PropAngSpecBandLimF(U,lambda_,phy_x,phy_y,100) #field just before lens (after 100 mm propagation)
-            U1 = SphLens(U, phy_x, phy_y, NP, lambda_, zmm)  # field just after lens
-            Up = PropAngSpecBandLimF(
-                U1, lambda_, phy_x, phy_y, zmm
+            U1 = self.SphLens(U, phy_x, phy_y, NP, lambda_,self.fflens)  # field just after lens
+            Up = self.PropAngSpecBandLimF(
+                U1, lambda_, phy_x, phy_y, self.fflens
             )  # final field at focal plane
             # Up = PropAngSpecBandLimF_mod(U1,H2)#final field at focal plane
         else:
-            Up = PropAngSpecBandLimF(
+            Up = self.PropAngSpecBandLimF(
                 U, lambda_, phy_x, phy_y, zmm
             )  # final field at far-field distance
             # Up = PropAngSpecBandLimF_mod(U,H1)  #final field at far-field distance
@@ -1448,14 +1446,44 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
 
         # return Up1, Intf
         return U_, np.abs(U_) ** 2, Intf, phase
+    def Transverse_ph_abbrZP(self,lambda_,abr,th,rh,R):
+        s = time.time()
+        device = self.device
+        rho = T.tensor(rh/R).to(device)
+        th = T.tensor(th).to(device)
+        abr = T.tensor(abr).to(device)
+        ZP1 = 2*rho*T.sin(th)
+        ZP2 = 2*rho*T.cos(th)
 
+        ZP3 = np.sqrt(3)*(2*(rho**2)-1)
+
+        ZP4 = np.sqrt(6)*(rho**2*T.sin(2*th))
+        ZP5 = np.sqrt(6)*(rho**2*T.cos(2*th))
+
+        ZP6 = np.sqrt(8)*((3*rho**3 - 2*rho)*T.sin(th))
+        ZP7 = np.sqrt(8)*((3*rho**3 - 2*rho)*T.cos(th))
+
+        ZP8 = np.sqrt(8)*(rho**3*T.sin(3*th))
+        ZP9 = np.sqrt(8)*(rho**3*T.cos(3*th))
+
+        ZP10 = np.sqrt(5)*(6*(rho**4)-6*(rho**2)+1)
+
+        ZPt = abr[0]*ZP1 + abr[1]*ZP2 + abr[2]*ZP3 + abr[3]*ZP4 +\
+            abr[4]*ZP5 + abr[5]*ZP6 + abr[6]*ZP7 + abr[7]*ZP8 +\
+                 abr[8]*ZP9 + abr[9]*ZP10
+        ZPt[rho>1] = 0
+        AbPh = T.exp(1j*(2*np.pi/lambda_)*ZPt)
+        e = time.time()-s
+        # print('Transverse_ph_abbrZP:',str(e),'s')
+        return AbPh
 
 
     def get_ff_pib(self,U,coord: list,noise: np.ndarray,mask,pin_total,thetar=None,th2d=None,fllens=None,use_lens=True,rp=None,plot=False,fig=None):
         phsm = noise
+        device = self.device
         Dx = self.pix_size * self.im_size
         im_size = self.im_size
-        Z = self.Z
+        Z = self.Z 
         k = 2 * np.pi / 1.064e-3  ## Wavelength in mm ## Physical Parameters
         print(f"Z : {Z} , pix_size : {(Dx/im_size)} , k : {k}\n")
         mask = T.tensor(mask).to(device)
@@ -1468,12 +1496,12 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
         # X, Y = T.meshgrid(T.arange(Xs).to(device) - Xs // 2, T.arange(Ys).to(device) - Ys // 2) ## Centered at zero , to add the tilt phase
         X, Y = np.meshgrid(np.arange(Xs) - Xs // 2, np.arange(Ys) - Ys // 2)  ## Centered at zero , to add the tilt phase
         X, Y = X * (Dx / im_size), Y * (Dx / im_size)
-        d2 = fllens
+        d2 = self.fflens if fllens is not None else fllens
         d1 = 0
         points = []
         ubb_list = []
         udebug = None
-        if (use_lens is False):  ### With no lens , shifting the beam in the far field for pointing error , by thetar, th2d
+        if (self.use_lens is False):  ### With no lens , shifting the beam in the far field for pointing error , by thetar, th2d
             cx = (np.tan(thetar) * Z * 1e3 * np.cos(th2d) * (im_size / Dx)).T
             # cx = (np.tan(thetar)*Z* np.cos(th2d)).T ## Physical Shift in x and y
             cy = (np.tan(thetar) * Z * 1e3 * np.sin(th2d) * (im_size / Dx)).T
@@ -1548,7 +1576,7 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
                 # plt.show()
                 # plt.cla()
             return pib, udebug, points, ubb_list
-        elif use_lens is True:  ### Lens Case
+        elif self.use_lens is True:  ### Lens Case
             zmm = Z * 1e3  ## Z in mm
             Cx = (
                 np.tan(thetar) * zmm * np.cos(th2d) * (im_size / Dx)
@@ -1618,7 +1646,7 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
                 # plt.cla()
             return pib, U_.cpu().numpy(), points, ubb_list
     
-    def get_lens_coordinates(x, y, fllens, im_size, Dx, d2, thetax, thetay):
+    def get_lens_coordinates(self,x, y, fllens, im_size, Dx, d2, thetax, thetay):
 
         cx = (1 - (d2 / fllens)) * x + (fllens * im_size / Dx) * (thetax)  ## R shift in x and y pixels
         cy = (1 - (d2 / fllens)) * y + (fllens * im_size / Dx) * (thetay)

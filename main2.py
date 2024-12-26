@@ -1,7 +1,7 @@
 # %% Code to simulate the TAC with longitudinal phase noise and turbulence
-from common_imports import *
-from utilities import Utilities
-from tac import TiledApertureBeamProp
+from tac_lib.common_imports import *
+from tac_lib.utilities import Utilities
+from tac_lib.tac import TiledApertureBeamProp
 # %%
 device = T.device('cuda' if T.cuda.is_available() else 'cpu')
 # %%

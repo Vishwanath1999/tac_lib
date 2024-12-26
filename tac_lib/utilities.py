@@ -1,6 +1,7 @@
 # %%
-from common_imports import *
+from .common_imports import *
 from scipy.io import loadmat
+import importlib.resources as pkg_resources
 # %%
 class Utilities:
     def __init__(self):
@@ -80,7 +81,8 @@ class Utilities:
         and time interval between samples (delt). The function returns the phase noise patterns (P1)
         as a numpy array.
         """
-        data = loadmat('new_spline_fit.mat')
+        with pkg_resources.open_binary('tac_lib.data', 'new_spline_fit.mat') as file: 
+            data = loadmat(file)
         env_t = data['env_t']
         env_1 = data['env_1']
         f = interp1d(env_t[:,0], env_1[:,0], kind='cubic')
@@ -167,7 +169,7 @@ class Utilities:
 
         return si_n.cpu().clone().detach().numpy()
     
-    def ZernCoeff_TransvPhs(RWEH, RWEL, NumZP,n_channel):
+    def ZernCoeff_TransvPhs(self,RWEH, RWEL, NumZP,n_channel):
         KvarH = RWEH**2
         KvarL = RWEL**2
         abrZPC = np.zeros((n_channel, NumZP))
@@ -185,7 +187,7 @@ class Utilities:
             Rabr[2:NumZP] = ZHn.flatten()
             abrZPC[nn, :] = Rabr
         return abrZPC
-    def find_centroid_coord(matrix):
+    def find_centroid_coord(self,matrix):
         rows, cols = np.indices(matrix.shape)
         centroid_x = int(np.average(cols, weights=matrix))  ### Rasises Zero Division Error
         centroid_y = int(np.average(rows, weights=matrix))
@@ -208,7 +210,8 @@ class Utilities:
         within the circular ROI is computed by summing the intensities and scaling by the pixel area.
         The function returns the total power (P) within the circular ROI as a float value.
         """
-        sx,sy = shape[0],shape[1]
+        # print('shape:',shape)
+        sx,sy = shape#[0],shape[1]
         x = np.arange(sx)
         y = np.arange(sy)
 
