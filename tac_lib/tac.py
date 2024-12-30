@@ -958,7 +958,8 @@ class TiledApertureBeamPropNested(TiledApertureBeamPropFast):
         super().__init__(im_size, pix_size, n_channel, p_n, Kvar, Z, trans_pn, amp_v, g_amp, ra, d_,iteration) ## Calls the Tilled Aperture Nested Function 
         self.shfx = np.array([-4, -2, 0, 2, 4, -3, -3, -1, -1, 1, 1, 3, 3, -2, -2, 0, 0, 2, 2]) #### Modify the array here 
         self.shfy = np.array([0, 0, 0, 0, 0, 1, -1, 1, -1, 1, -1, 1, -1, 2, -2, 2, -2, 2, -2])
-
+        self.shfx = np.array([0,2,-2,1,-1,1,-1]) ## For 7 units 
+        self.shfy = np.array([0,0,0,1,1,-1,-1])
     def TiledAperture_2(self, p_n, tilt, TiltFact=0.25, f_lens_mm=2e3, fLensFull_mm=25e3):
         """
         Modified version of the TiledAperture_2 function to include the tilt parameter.
@@ -1958,15 +1959,15 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
                 # ax1.colorbar()
                 for i, c in enumerate(coord):
                     ax1.scatter(
-                        c[0] + im_size // 2 + int(cy[i]),
-                        c[1] + im_size // 2 + int(cx[i]),
+                        c[0] + NP // 2 + int(cy[i]),
+                        c[1] + NP // 2 + int(cx[i]),
                         color="r",
                     )
                     points.append(
-                        (c[0] + im_size // 2 + int(cx[i]), c[1] + im_size // 2 + int(cy[i]))
+                        (c[0] + NP // 2 + int(cx[i]), c[1] + NP // 2 + int(cy[i]))
                     )
-                    # plt.xlim(im_size//2-100,im_size//2+100)
-                    # plt.ylim(im_size//2-100,im_size//2+100)
+                    # plt.xlim(NP//2-100,NP//2+100)
+                    # plt.ylim(NP//2-100,NP//2+100)
                 ax1.imshow(udebug, cmap="viridis")
                 # plt.show()
                 # plt.cla()
@@ -1997,8 +1998,8 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
                 ## Debug Print
                 print(
                     f"cx: {cx[idx]},cy:{cy[idx]} , kx: {kx.shape}"
-                )  # , c : {c[0]*Dx/im_size}, {c[1]*Dx/im_size}')
-                # print(f'x:{(c[0]+cx[idx])*Dx/im_size}, y:{(c[1]+cy[idx])*Dx/im_size}')
+                )  # , c : {c[0]*Dx/NP}, {c[1]*Dx/NP}')
+                # print(f'x:{(c[0]+cx[idx])*Dx/NP}, y:{(c[1]+cy[idx])*Dx/NP}')
                 # ubb = T.exp(T.tensor(1j * kx[idx] * (X)).to(device)) * T.exp(T.tensor(1j * ky[idx] * (Y)).to(device)) ## Tilt Phase in x and y , shifted to c[0],c[1] #FIXME : Why only X and Y works , and not the shifted one , which has a higher magnitude
                 ubb = T.exp(
                     T.tensor(-1j * kx[idx] * (X - int(cx[idx]) * Dx / NP)).to(device) #FIXME: Findout why there is a negative sign , refer source TAC final
@@ -2020,15 +2021,15 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
                 ax1 = fig.add_subplot(221)
                 udebug = (T.abs(U_) ** 2).cpu().numpy()
                 ax1.imshow(udebug, cmap="viridis")
-                # ax1.add_patch(plt.Circle((im_size/2,im_size/2),rp,fill=False,color='r'))
-                # ax1.add_patch(plt.Circle((im_size/2,im_size/2),rp*4,fill=False,color='g'))
-                # ax1.annotate(f"PIB Value: {str(pib)[:5]},\nPIN {str(pin_total)[:5]} \n absPIB : {str(pin_total*pib)[:5]}",xy=(im_size//2,im_size//2),xytext=(im_size//2,im_size//2+im_size//22),arrowprops=dict(facecolor='black',arrowstyle='->'))
+                # ax1.add_patch(plt.Circle((NP/2,NP/2),rp,fill=False,color='r'))
+                # ax1.add_patch(plt.Circle((NP/2,NP/2),rp*4,fill=False,color='g'))
+                # ax1.annotate(f"PIB Value: {str(pib)[:5]},\nPIN {str(pin_total)[:5]} \n absPIB : {str(pin_total*pib)[:5]}",xy=(NP//2,NP//2),xytext=(NP//2,NP//2+NP//22),arrowprops=dict(facecolor='black',arrowstyle='->'))
                 ax1.set_title("FF addition Intensity")
                 # for i,c in enumerate(coord):
-                #   ax1.scatter(c[0]+im_size//2+int(cy[i]),c[1]+im_size//2+int(cx[i]),color='r')
-                #   points.append((c[0]+im_size//2+int(cx[i]),c[1]+im_size//2+int(cy[i])))
-                ax1.set_xlim(im_size // 2 - 100, im_size // 2 + 100)
-                ax1.set_ylim(im_size // 2 - 100, im_size // 2 + 100)
+                #   ax1.scatter(c[0]+NP//2+int(cy[i]),c[1]+NP//2+int(cx[i]),color='r')
+                #   points.append((c[0]+NP//2+int(cx[i]),c[1]+NP//2+int(cy[i])))
+                ax1.set_xlim(NP // 2 - 100, NP // 2 + 100)
+                ax1.set_ylim(NP // 2 - 100, NP // 2 + 100)
                 ax2 = fig.add_subplot(222)
                 ax2.imshow(np.angle((U_).cpu().numpy()), cmap="viridis")
                 # ax2.set_title('Phase Not Zoomed')
