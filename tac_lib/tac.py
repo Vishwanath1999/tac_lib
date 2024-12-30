@@ -1431,7 +1431,7 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
         # theta = mDr
         thetar = np.radians(thetar)
         th2d = np.radians(th2d)
-        print(thetar)
+        # print(thetar)
         kx = k * np.sin(thetar) * np.sin(th2d)[0]
         ky = k * np.sin(thetar) * np.cos(th2d)[0]
         # print(kx.shape)
@@ -1879,7 +1879,7 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
         NP = self.im_size ## Number of Points/Pixels in the image plane
         Z = self.Z 
         k = 2 * np.pi / 1.064e-3  ## Wavelength in mm ## Physical Parameters
-        print(f"Z : {Z} , pix_size : {(Dx/im_size)} , k : {k}\n")
+        print(f"Z : {Z} , pix_size : {(Dx/NP)} , k : {k}\n")
         mask = T.tensor(mask).to(device)
         # Cicrc = T.tensor(Circ3).to(device)
         U_ = T.zeros_like(U).to(self.device)
@@ -1890,7 +1890,8 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
         # X, Y = T.meshgrid(T.arange(Xs).to(device) - Xs // 2, T.arange(Ys).to(device) - Ys // 2) ## Centered at zero , to add the tilt phase
         X, Y = np.meshgrid(np.arange(Xs) - Xs // 2, np.arange(Ys) - Ys // 2)  ## Centered at zero , to add the tilt phase
         X, Y = X * (Dx / NP), Y * (Dx / NP)
-        d2 = self.fflens if fllens is not None else fllens
+        fllens = self.fflens if fllens is not None else fllens
+        d2 = fllens ## At the Focal Plane 
         d1 = 0
         points = []
         ubb_list = []
@@ -1979,12 +1980,14 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
             ## cx , cy will be calculated using the lens formula
             thetax = np.arctan(Cx / (zmm * (NP / Dx))).T
             thetay = np.arctan(Cy / (zmm * (NP / Dx))).T
+            thetax[1] = 0 ## No Pointing Error for the first beam
+            thetay[1] = 0
             for idx, c in enumerate(coord):
                 print(thetax.shape)
                 cx = (1 - (d2 / fllens)) * c[0] + (fllens * NP / Dx) * (
                     thetax
                 )  ## R shift in x and y pixels
-                cy = (1 - (d2 / fllens)) * c[0] + (fllens * NP / Dx) * (thetay)
+                cy = (1 - (d2 / fllens)) * c[1] + (fllens * NP / Dx) * (thetay) #There was an error here , corrected
                 kx = k * np.sin(
                     ((-(c[0] * Dx / NP) / fllens) + (1 - (d1 / fllens)) * thetax)
                 )  ## Needs to cal in physical units of mm
@@ -2004,11 +2007,11 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
                 )  ## Tilt Phase in x and y , shifted to c[0],c[1]
                 ## Tilt and Shifted
          
-                U_ += (T.roll(U, shifts=(int(cx[idx]), int(cy[idx])), dims=(1, 0)) * ubb * T.exp(1j * phNs[idx]))  # Tilt and Shifted 
+                # U_ += (T.roll(U, shifts=(int(cx[idx]), int(cy[idx])), dims=(1, 0)) * ubb * T.exp(1j * phNs[idx]))  # Tilt and Shifted 
                 
                 # U_ += T.roll(U*0,shifts=(int(cx[idx]),int(cy[idx])),dims=(1,0))#*ubb* T.exp(1j * phNs[idx])#Tilt and Shifted #FIXME: why is the shift in physical units of mm
                 #  cond = 0
-                # U_ += T.roll(U,shifts=(0,0),dims=(1,0)) * ubb * T.exp(1j * phNs[idx]) #Tilt and Shifted #FIXME: why is the shift in physical units of mm
+                U_ += T.roll(U,shifts=(0,0),dims=(1,0)) * ubb * T.exp(1j * phNs[idx]) #Tilt  #FIXME: why is the shift in physical units of mm
                 # ubb_list.append((ubb).cpu().numpy())
                 
             pib = ((T.real(T.sum((T.abs(U_) ** 2 * mask) * (Dx / NP * 1e-3) ** 2))/ pin_total).cpu().numpy())
