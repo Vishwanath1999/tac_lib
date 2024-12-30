@@ -1481,8 +1481,8 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
     def get_ff_pib(self,U,coord: list,noise: np.ndarray,mask,pin_total,thetar=None,th2d=None,fllens=None,use_lens=True,rp=None,plot=False,fig=None):
         phsm = noise
         device = self.device
-        Dx = self.pix_size * self.im_size
-        im_size = self.im_size
+        Dx = self.pix_size * self.im_size ## Physical Parameters
+        NP = self.im_size ## Number of Points/Pixels in the image plane
         Z = self.Z 
         k = 2 * np.pi / 1.064e-3  ## Wavelength in mm ## Physical Parameters
         print(f"Z : {Z} , pix_size : {(Dx/im_size)} , k : {k}\n")
@@ -1495,16 +1495,16 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
         Xs, Ys = U.shape
         # X, Y = T.meshgrid(T.arange(Xs).to(device) - Xs // 2, T.arange(Ys).to(device) - Ys // 2) ## Centered at zero , to add the tilt phase
         X, Y = np.meshgrid(np.arange(Xs) - Xs // 2, np.arange(Ys) - Ys // 2)  ## Centered at zero , to add the tilt phase
-        X, Y = X * (Dx / im_size), Y * (Dx / im_size)
+        X, Y = X * (Dx / NP), Y * (Dx / NP)
         d2 = self.fflens if fllens is not None else fllens
         d1 = 0
         points = []
         ubb_list = []
         udebug = None
         if (self.use_lens is False):  ### With no lens , shifting the beam in the far field for pointing error , by thetar, th2d
-            cx = (np.tan(thetar) * Z * 1e3 * np.cos(th2d) * (im_size / Dx)).T
+            cx = (np.tan(thetar) * Z * 1e3 * np.cos(th2d) * (NP / Dx)).T
             # cx = (np.tan(thetar)*Z* np.cos(th2d)).T ## Physical Shift in x and y
-            cy = (np.tan(thetar) * Z * 1e3 * np.sin(th2d) * (im_size / Dx)).T
+            cy = (np.tan(thetar) * Z * 1e3 * np.sin(th2d) * (NP / Dx)).T
             # cy = (np.tan(thetar)*Z* np.sin(th2d)).T
             kx = k * np.sin(thetar) * np.sin(th2d)[0]  ## tilt phase in mm
             ky = k * np.sin(thetar) * np.cos(th2d)[0]  ## tilt phase in mm
@@ -1513,11 +1513,11 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
             for idx, c in enumerate(coord):  # 7
                 # TODO : Correct for the Propagation Delays in the other beams
                 ubb = T.exp(
-                    T.tensor(1j * kx[idx] * (X + (c[0] + cx[idx]) * Dx / im_size)).to(
+                    T.tensor(1j * kx[idx] * (X + (c[0] + cx[idx]) * Dx / NP)).to(
                         device
                     )
                 ) * T.exp(
-                    T.tensor(1j * ky[idx] * (Y + (c[1] + cy[idx]) * Dx / im_size)).to(
+                    T.tensor(1j * ky[idx] * (Y + (c[1] + cy[idx]) * Dx / NP)).to(
                         device
                     )
                 )
@@ -1540,7 +1540,7 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
                 # U_ += T.roll(U,shifts=(c[1]+int(cy[idx]),c[0]+int(cx[idx])),dims=(0,1)) * T.exp(1j * phNs[idx])
             pib = (
                 (
-                    T.real(T.sum((T.abs(U_) ** 2 * mask) * ((Dx / im_size) * 1e-3) ** 2))
+                    T.real(T.sum((T.abs(U_) ** 2 * mask) * ((Dx / NP) * 1e-3) ** 2))
                     / pin_total
                 )
                 .cpu()
@@ -1554,12 +1554,12 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
                 udebug = (T.abs(U_) ** 2).cpu().numpy()
                 # ax1.imshow(udebug,cmap='viridis')
                 ax1.add_patch(
-                    plt.Circle((im_size / 2, im_size / 2), rp, fill=False, color="r")
+                    plt.Circle((NP / 2, NP / 2), rp, fill=False, color="r")
                 )
                 ax1.add_patch(
-                    plt.Circle((im_size / 2, im_size / 2), rp * 4, fill=False, color="g")
+                    plt.Circle((NP / 2, NP / 2), rp * 4, fill=False, color="g")
                 )
-                ax1.text(im_size // 2, 0, f"PIB Value: {pib}", color="r", fontsize=12)
+                ax1.text(NP // 2, 0, f"PIB Value: {pib}", color="r", fontsize=12)
                 # ax1.colorbar()
                 for i, c in enumerate(coord):
                     ax1.scatter(
@@ -1579,23 +1579,23 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
         elif self.use_lens is True:  ### Lens Case
             zmm = Z * 1e3  ## Z in mm
             Cx = (
-                np.tan(thetar) * zmm * np.cos(th2d) * (im_size / Dx)
+                np.tan(thetar) * zmm * np.cos(th2d) * (NP / Dx)
             )  ## Shift intented in Far field in pixels
-            Cy = np.tan(thetar) * zmm * np.sin(th2d) * (im_size / Dx)
+            Cy = np.tan(thetar) * zmm * np.sin(th2d) * (NP / Dx)
             ## cx , cy will be calculated using the lens formula
-            thetax = np.arctan(Cx / (zmm * (im_size / Dx))).T
-            thetay = np.arctan(Cy / (zmm * (im_size / Dx))).T
+            thetax = np.arctan(Cx / (zmm * (NP / Dx))).T
+            thetay = np.arctan(Cy / (zmm * (NP / Dx))).T
             for idx, c in enumerate(coord):
                 print(thetax.shape)
-                cx = (1 - (d2 / fllens)) * c[0] + (fllens * im_size / Dx) * (
+                cx = (1 - (d2 / fllens)) * c[0] + (fllens * NP / Dx) * (
                     thetax
                 )  ## R shift in x and y pixels
-                cy = (1 - (d2 / fllens)) * c[0] + (fllens * im_size / Dx) * (thetay)
+                cy = (1 - (d2 / fllens)) * c[0] + (fllens * NP / Dx) * (thetay)
                 kx = k * np.sin(
-                    ((-(c[0] * Dx / im_size) / fllens) + (1 - (d1 / fllens)) * thetax)
+                    ((-(c[0] * Dx / NP) / fllens) + (1 - (d1 / fllens)) * thetax)
                 )  ## Needs to cal in physical units of mm
                 ky = k * np.sin(
-                    ((-(c[1] * Dx / im_size) / fllens) + (1 - (d1 / fllens)) * thetay)
+                    ((-(c[1] * Dx / NP) / fllens) + (1 - (d1 / fllens)) * thetay)
                 )
                 ## Debug Print
                 print(
@@ -1604,9 +1604,9 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
                 # print(f'x:{(c[0]+cx[idx])*Dx/im_size}, y:{(c[1]+cy[idx])*Dx/im_size}')
                 # ubb = T.exp(T.tensor(1j * kx[idx] * (X)).to(device)) * T.exp(T.tensor(1j * ky[idx] * (Y)).to(device)) ## Tilt Phase in x and y , shifted to c[0],c[1] #FIXME : Why only X and Y works , and not the shifted one , which has a higher magnitude
                 ubb = T.exp(
-                    T.tensor(-1j * kx[idx] * (X - int(cx[idx]) * Dx / im_size)).to(device) #FIXME: Findout why there is a negative sign , refer source TAC final
+                    T.tensor(-1j * kx[idx] * (X - int(cx[idx]) * Dx / NP)).to(device) #FIXME: Findout why there is a negative sign , refer source TAC final
                 ) * T.exp(
-                    T.tensor(1j * ky[idx] * (Y - int(cy[idx]) * Dx / im_size)).to(device)
+                    T.tensor(1j * ky[idx] * (Y - int(cy[idx]) * Dx / NP)).to(device)
                 )  ## Tilt Phase in x and y , shifted to c[0],c[1]
                 ## Tilt and Shifted
          
@@ -1617,7 +1617,7 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
                 # U_ += T.roll(U,shifts=(0,0),dims=(1,0)) * ubb * T.exp(1j * phNs[idx]) #Tilt and Shifted #FIXME: why is the shift in physical units of mm
                 # ubb_list.append((ubb).cpu().numpy())
                 
-            pib = ((T.real(T.sum((T.abs(U_) ** 2 * mask) * (Dx / im_size * 1e-3) ** 2))/ pin_total).cpu().numpy())
+            pib = ((T.real(T.sum((T.abs(U_) ** 2 * mask) * (Dx / NP * 1e-3) ** 2))/ pin_total).cpu().numpy())
             
             if plot:
                 ax1 = fig.add_subplot(221)
@@ -1639,8 +1639,8 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
                 # ax4 = fig.add_subplot(224)
                 # ax4.imshow(np.angle(U_.cpu().numpy()),cmap='viridis')
                 # ax4.set_title('Phase Zoomed')
-                ax2.set_xlim(im_size // 2 - 100, im_size // 2 + 100)
-                ax2.set_ylim(im_size // 2 - 100, im_size // 2 + 100)
+                ax2.set_xlim(NP // 2 - 100, NP // 2 + 100)
+                ax2.set_ylim(NP // 2 - 100, NP // 2 + 100)
                 # ax1.colorbar()
                 # plt.show()
                 # plt.cla()
