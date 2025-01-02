@@ -192,6 +192,10 @@ class Utilities:
         centroid_x = int(np.average(cols, weights=matrix))  ### Rasises Zero Division Error
         centroid_y = int(np.average(rows, weights=matrix))
         return centroid_x, centroid_y
+    def find_max_coordinates(self,matrix):
+        flattened_index = np.argmax(matrix)
+        rows, cols = np.unravel_index(flattened_index, matrix.shape)
+        return rows, cols
     def CircMask(self,shape,Xc,Yc,Roc):
         """
         Calculate a circular region of interest (ROI) mask on an image which will be used to calculate the Power within the ROI.

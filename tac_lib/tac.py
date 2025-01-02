@@ -292,7 +292,7 @@ class TiledApertureBeamProp:
 
         return uout
     
-    def SphLens(self,uin,L1,L2,NP,lambda_,zf):
+    def SphLens(self,uin,L1,L2,NP,lambda_,zf,n=1.55,th=0):
         #Units: mm
         """
         Simulate the propagation of a wavefront through a spherical lens.
@@ -304,6 +304,8 @@ class TiledApertureBeamProp:
         - NP (int): Number of points for discretization.
         - lambda_ (float): Wavelength of the wavefront in millimeters.
         - zf (float): Focal length of the lens in millimeters.
+        - n (float): Refractive index of the lens. Default is 1.55.
+        - th (float) : Thickness of the lens in mm. Default is 0. Thin Lens approximation.
 
         Returns:
         - uout (torch tensor): Output wavefront after passing through the lens.
@@ -315,6 +317,7 @@ class TiledApertureBeamProp:
         number of points for discretization (NP), wavelength of the wavefront (lambda_), and
         focal length of the lens (zf). The output is the wavefront after passing through
         the lens, returned as a torch tensor.
+        #TODO: Take the refractive index of the lens as input too (for small angle approximations for now)
         """
         k=2*np.pi/lambda_
 
@@ -325,7 +328,7 @@ class TiledApertureBeamProp:
         x=T.arange(-L2/2,L2/2,dx).to(self.device)
 
         X,Y=T.meshgrid(x,y,indexing='xy')
-        uout=T.multiply(uin,T.exp(-1j*(k/(2*zf))*(X**2+Y**2)))
+        uout=T.multiply(uin,T.exp(-1j*(k/(2*zf))*(X**2+Y**2)))#,T.exp(1j*k*n*th))
         return uout
 
     def sourceTAC_final(self,lambda_,w0,Ra,a,NL,Dx,NP,mDr,zm,m,Rc,phNs,Kvar,trans_pn,amp_v,g_amp, n_chan):
@@ -1614,7 +1617,7 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
         uc0 = (
             np.sqrt(g_amp)
             * self.GaussBeamNDefPsLw(lambda_,wx=wx,wy=wy,Rc=Rc,X0=0,Y0=0,Dxy=Dx,NP=NP,m=None,zmm=7e6,P=P[0, n_cn])
-            * self.CirAperN(0, 0, Ra, Dx, NP)
+            #* self.CirAperN(0, 0, Ra, Dx, NP)
         )
         coord = np.array([])
         for r in range(mnE):
@@ -2008,11 +2011,11 @@ class TiledAperture_test(TiledApertureBeamPropFast): ## Currently in Use
                 )  ## Tilt Phase in x and y , shifted to c[0],c[1]
                 ## Tilt and Shifted
          
-                # U_ += (T.roll(U, shifts=(int(cx[idx]), int(cy[idx])), dims=(1, 0)) * ubb * T.exp(1j * phNs[idx]))  # Tilt and Shifted 
+                U_ += (T.roll(U, shifts=(int(cx[idx]), int(cy[idx])), dims=(1, 0)) * ubb * T.exp(1j * phNs[idx]))  # Tilt and Shifted 
                 
                 # U_ += T.roll(U*0,shifts=(int(cx[idx]),int(cy[idx])),dims=(1,0))#*ubb* T.exp(1j * phNs[idx])#Tilt and Shifted #FIXME: why is the shift in physical units of mm
                 #  cond = 0
-                U_ += T.roll(U,shifts=(0,0),dims=(1,0)) * ubb * T.exp(1j * phNs[idx]) #Tilt  #FIXME: why is the shift in physical units of mm
+                # U_ += T.roll(U,shifts=(0,0),dims=(1,0)) * ubb * T.exp(1j * phNs[idx]) #Tilt  #FIXME: why is the shift in physical units of mm
                 # ubb_list.append((ubb).cpu().numpy())
                 
             pib = ((T.real(T.sum((T.abs(U_) ** 2 * mask) * (Dx / NP * 1e-3) ** 2))/ pin_total).cpu().numpy())
