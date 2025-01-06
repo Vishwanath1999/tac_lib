@@ -57,7 +57,7 @@ Both scripts share a set of common parameters:
 - `p_n`: Phase noise
 - `V`: Control Voltage initialization
 - `Kvar`: Variable K
-- `trans_pn`: Transmitted phase noise
+- `trans_pn`: Transverse phase noise
 - `w_l`: Wavelength
 - `k`: Wave number
 - `Z`, `r`: Far field distance and bucket size
