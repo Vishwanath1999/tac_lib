@@ -62,7 +62,7 @@ class Utilities:
             return fflens,r
         return Z,r
 
-    def env_pn(self, n_channel, cyc, delt):
+    def env_pn(self, n_channel, cyc, delt,streams=None):
         """
         Generate phase noise patterns based on environmental parameters.
 
@@ -70,6 +70,7 @@ class Utilities:
         - n_channel (int): Number of channels.
         - cyc (int): Number of cycles in the phase noise pattern.
         - delt (float): Time interval between samples.
+        - streams (int): To make sure the same phase noise pattern in produced , random number generator
 
         Returns:
         - P1 (numpy array): Phase noise patterns for each channel.
@@ -92,7 +93,12 @@ class Utilities:
 
         P1a = np.ones((n_channel,len(env_n)), dtype=np.cdouble)
         for ii in range(n_channel):
-            P1a[ii,:] = ifft(fft_env1*np.exp(1j*2*np.pi*np.random.rand(1,len(env_n))))
+            
+            if streams is not None:
+                rng = streams[ii]
+                P1a[ii,:] = ifft(fft_env1*np.exp(1j*2*np.pi*rng.uniform(1,len(env_n))))
+            else:
+                P1a[ii,:] = ifft(fft_env1*np.exp(1j*2*np.pi*np.random.rand(1,len(env_n))))
 
         P1b = np.zeros((n_channel,len(env_n)))
         for ii in range(n_channel):
@@ -104,16 +110,17 @@ class Utilities:
 
         return P1
 
-    def ss_turb(self,im_size, N_ss, l_0, L_0, r_c):
+    def ss_turb(self,im_size, N_ss, l_0, L_0, r_c,rng=None):
         """
         Simulate atmospheric turbulence using the von Karman spectrum.
 
         Parameters:
         - im_size (int): Size of the turbulence image.
-        - N_ss (int): Number of samples.
-        - l_0 (float): Outer scale of turbulence.
-        - L_0 (float): Integral length scale of turbulence.
+        - N_ss (int): Number of samples. (500 - 1000) beyond 1k no change
+        - l_0 (float): Outer scale of turbulence. Minimum vortex Size 
+        - L_0 (float): Integral length scale of turbulence. Largest Vortex Size 
         - r_c (float): Correlation radius.
+        - rng (generator): Default is None , For Reproducibility 
 
         Returns:
         - si_n (numpy array): Simulated turbulence phase screen.
@@ -135,9 +142,9 @@ class Utilities:
         k_min = kapp_0
 
         K_n = k_min*np.exp((n/N_ss)*np.log(k_max/k_min))
-        zeta = np.random.rand(1,len(list(K_n)))
+        zeta = rng.uniform(1, len(list(K_n))) if rng is not None else np.random.rand(1, len(list(K_n)))
         k_n = np.zeros((1,len(list(K_n))))
-        k_n[0,0] = np.random.rand(1)
+        k_n[0,0] = rng.uniform() if rng is not None else np.random.rand(1)
 
         for ii in range(1,len(list(K_n))):
             k_n[0,ii] = np.sqrt(K_n[ii-1]**2 + zeta[0,ii]*(K_n[ii]**2 - K_n[ii-1]**2))
@@ -150,12 +157,12 @@ class Utilities:
         for jj in range(1,len(list(K_n))):
             phi[0,jj],_ = integral.quad(func,K_n[jj-1],K_n[jj],epsrel=1.0e-3)
 
-        alpha = np.random.randn(1,len(list(n)))
-        beta = np.random.randn(1,len(list(n)))
+        alpha = rng.standard_normal(1,len(list(n))) if rng is not None else np.random.randn(1,len(list(n)))#FIXME Same Random Seed ? 
+        beta = rng.standard_normal(1,len(list(n))) if rng is not None else np.random.randn(1,len(list(n)))
         s_n = 2*np.pi*phi
         a_n = np.sqrt(s_n)*(alpha + 1j*beta)
         a = T.tensor(np.diag(np.transpose(a_n)[:,0])).to(self.device)
-        theta = 2*np.pi*np.random.rand(1,len(list(n)))
+        theta = 2*np.pi*(rng.uniform(1,len(list(n))) if rng is not None else np.random.rand(1,len(list(n))))
         X = np.arange(0,1,1/im_size)
         Y = np.arange(0,1,1/im_size)
         X = X[:,np.newaxis]

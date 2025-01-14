@@ -20,6 +20,7 @@ class TiledApertureBeamProp:
         self.g_amp = g_amp
         self.ra = ra
         self.d_ = d_
+        self.kernel = True
 
 
     def Transverse_ph_abbrZP(self,abr,th,rh,R):
@@ -246,49 +247,51 @@ class TiledApertureBeamProp:
         propagation, returned as a torch tensor.
         """
         layer = uin
-        lambda_ = L*1e-3
-        k = 2*np.pi/lambda_
-        z = zmm*1e-3
-        phy_x = Dx*1e-3
-        phy_y = Dy*1e-3
+        if self.kernel : ## This will run once and save the kernel
+            lambda_ = L*1e-3
+            k = 2*np.pi/lambda_
+            z = zmm*1e-3
+            phy_x = Dx*1e-3
+            phy_y = Dy*1e-3
 
-        obj_size = layer.shape
-        r,c = layer.shape[0], layer.shape[1]
-        Fs_x = obj_size[1]/phy_x
-        Fs_y = obj_size[0]/phy_y
+            obj_size = layer.shape
+            r,c = layer.shape[0], layer.shape[1]
+            Fs_x = obj_size[1]/phy_x
+            Fs_y = obj_size[0]/phy_y
 
-        dFx = Fs_x/obj_size[1]
-        dFy = Fs_y/obj_size[0]
+            dFx = Fs_x/obj_size[1]
+            dFy = Fs_y/obj_size[0]
 
-        Fx = np.arange(-Fs_x/2,Fs_x/2,dFx)
-        Fy = np.arange(-Fs_y/2,Fs_y/2,dFy)
+            Fx = np.arange(-Fs_x/2,Fs_x/2,dFx)
+            Fy = np.arange(-Fs_y/2,Fs_y/2,dFy)
 
-        alpha = lambda_*Fx
-        beta = lambda_*Fy
-        len_alpha = len(alpha)
-        len_beta = len(beta)
+            alpha = lambda_*Fx
+            beta = lambda_*Fy
+            len_alpha = len(alpha)
+            len_beta = len(beta)
 
-        gamma = self.get_gamma(len_alpha,len_beta,alpha,beta)
+            gamma = self.get_gamma(len_alpha,len_beta,alpha,beta)
 
 
-        ival = T.tensor(k*gamma*z).to(self.device)
-        H0 = T.exp(1j*ival)
+            ival = T.tensor(k*gamma*z).to(self.device)
+            H0 = T.exp(1j*ival)
 
-        Fxlim = 1/(np.sqrt(1+(2*dFx*z)**2)*lambda_)
-        Fylim = 1/(np.sqrt(1+(2*dFy*z)**2)*lambda_)
+            Fxlim = 1/(np.sqrt(1+(2*dFx*z)**2)*lambda_)
+            Fylim = 1/(np.sqrt(1+(2*dFy*z)**2)*lambda_)
 
-        FxBL = np.zeros((len(beta),len(alpha)))
-        FyBL = np.zeros((len(beta), len(beta)))
-        FxBLr = self.rectangularPulse(-Fxlim,Fxlim,Fx)
-        FyBLc = self.rectangularPulse(-Fxlim,Fylim,Fx)
+            FxBL = np.zeros((len(beta),len(alpha)))
+            FyBL = np.zeros((len(beta), len(beta)))
+            FxBLr = self.rectangularPulse(-Fxlim,Fxlim,Fx)
+            FyBLc = self.rectangularPulse(-Fxlim,Fylim,Fx)
 
-        FxBL,FyBL = self.getFs(FxBL,FxBLr,FyBL,FyBLc,c,r)
+            FxBL,FyBL = self.getFs(FxBL,FxBLr,FyBL,FyBLc,c,r)
 
-        FxBL = T.tensor(FxBL).to(self.device)
-        FyBL = T.tensor(FyBL).to(self.device)
-        H1 = H0*FxBL*FyBL
-
-        uout = ifft2(ifftshift((fftshift(fft2(layer)))*H1))
+            FxBL = T.tensor(FxBL).to(self.device)
+            FyBL = T.tensor(FyBL).to(self.device)
+            H1 = H0*FxBL*FyBL
+            self.H1 = H1
+            self.kernel = False
+        uout = ifft2(ifftshift((fftshift(fft2(layer)))*self.H1))
 
         return uout
     
@@ -443,7 +446,7 @@ class TiledApertureBeamProp:
             p += 1
         return U
     
-    def TiledAperture_2(self, p_n):
+    def TiledAperture_2(self, p_n,atm=None):
         """
         Simulate coherent beam combining with a tiled aperture.
 
@@ -514,7 +517,7 @@ class TiledApertureBeamProp:
             z_prop = zsmm
         Up = self.PropAngSpecBandLimF(U,lambda_,phy_x,phy_y,z_prop)  #final field z_prop
 
-
+        self.atm = atm if atm is not None else self.atm
         if self.atm is not None:
             for ii in range(n_step):
                 Uat = Up*T.exp(1j*self.atm[:,:,ii])
@@ -817,8 +820,8 @@ class TiledApertureBeamPropFast(TiledApertureBeamProp):
         phNs = self.p_n
 
         w0 = w
-
-        U,coord = self.sourceTAC_final(lambda_,w0,Ra,a,NL,Dx,NP,mDr,zm,m,Rc,phNs,self.Kvar,self.trans_pn,\
+        
+        U,coord = super().sourceTAC_final(lambda_,w0,Ra,a,NL,Dx,NP,mDr,zm,m,Rc,phNs,self.Kvar,self.trans_pn,\
                                        self.amp_v,self.g_amp,self.n_channel)
         U_ = U.cpu().numpy()
         # pib_ = PIB(np.abs(U_)**2,1024,1024,1023,pix_size)
