@@ -931,6 +931,7 @@ class TiledApertureBeamPropFast(TiledApertureBeamProp):
         Circ = np.ones((sx,sy))
         R = np.sqrt((X-Xc)**2 + (Y-Yc)**2)
         Circ[R>Roc] = 0
+        self.CircROI = Circ
         return Circ
     
     def PIB_loop(self,uin,Circ=None):
@@ -951,8 +952,7 @@ class TiledApertureBeamPropFast(TiledApertureBeamProp):
         within the circular ROI is computed by summing the intensities and scaling by the pixel area.
         The function returns the total power (P) within the circular ROI as a float value.
         """
-        if Circ is None: #TODO: yet to find a better way to do this
-            Circ = self.CircROI
+        Circ = self.CircROI if Circ is None else Circ
         IntfCir = uin*Circ
         IntfCir1 = IntfCir*(self.pix_size*1e-3)**2
         P = np.sum(IntfCir1)
