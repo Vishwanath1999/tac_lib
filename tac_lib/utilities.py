@@ -62,7 +62,7 @@ class Utilities:
             return fflens,r
         return Z,r
 
-    def env_pn(self, n_channel, cyc, delt,streams=None):
+    def env_pn(self, n_channel, cyc, delt,streams=None,filename=None):
         """
         Generate phase noise patterns based on environmental parameters.
 
@@ -82,8 +82,16 @@ class Utilities:
         and time interval between samples (delt). The function returns the phase noise patterns (P1)
         as a numpy array.
         """
-        with pkg_resources.open_binary('tac_lib.data', 'new_spline_fit.mat') as file: 
-            data = loadmat(file)
+        if filename is None:
+            with pkg_resources.open_binary('tac_lib.data', 'new_spline_fit.mat') as file: 
+                data = loadmat(file)
+        else:
+            try :
+                data = loadmat(filename)
+            except FileNotFoundError:
+                print('File not found')
+                return None
+        
         env_t = data['env_t']
         env_1 = data['env_1']
         f = interp1d(env_t[:,0], env_1[:,0], kind='cubic')
