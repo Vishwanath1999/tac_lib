@@ -563,9 +563,10 @@ class TiledApertureBeamProp:
 # %%
 class TiledApertureBeamPropFast(TiledApertureBeamProp):
 
-    def __init__(self,im_size,pix_size,n_channel,p_n,Kvar,Z,trans_pn,amp_v,g_amp,ra,d_,iteration=False):
+    def __init__(self,im_size,pix_size,n_channel,p_n,Kvar,Z,trans_pn,amp_v,g_amp,ra,d_,iteration=False,truc=None):
         super().__init__(im_size,pix_size,n_channel,0,Kvar,Z,trans_pn,0,amp_v,g_amp,ra,d_) ## The zeros are for no atm and no n_screens
         self.p_n = p_n
+        self.truc = truc
         if iteration:
             self.iterations_setup()
   
@@ -574,6 +575,7 @@ class TiledApertureBeamPropFast(TiledApertureBeamProp):
         obj_size = (self.im_size,self.im_size)
         lambda_ = 1.064*1e-3
         self.H1 = self.PropAngSpecBandLimF_kernel(obj_size,lambda_,phy_x,phy_x,self.Z)
+        print(type(self.H1))
         # self.CircROI = self.CircMask(obj_size,)
     
     def PropAngSpecBandLimF_kernel(self,obj_size,L,Dx,Dy,zm): #TODO: To modify this function , saving H kernel
@@ -637,6 +639,7 @@ class TiledApertureBeamPropFast(TiledApertureBeamProp):
         FxBL = T.tensor(FxBL).to(self.device)
         FyBL = T.tensor(FyBL).to(self.device)
         H1 = H0*FxBL*FyBL
+        self.kernel = False
         return H1
         # self.H1 = H1 #FIXME might change ? 
 
@@ -646,9 +649,10 @@ class TiledApertureBeamPropFast(TiledApertureBeamProp):
         to account for diffraction effects during propagation.
 
         """
-        if H1 is None:
-            H1 = self.H1
-        return ifft2(ifftshift((fftshift(fft2(uin)))*H1))
+        # if H1 is None:
+            # H1 = self.H1
+        # print(type(H1))
+        return ifft2(ifftshift((fftshift(fft2(uin)))*self.H1))
     #TODO: Optimize
     def sourceTAC_final(self,lambda_,w0,Ra,a,NL,Dx,NP,mDr,zm,m,Rc,phNs,Kvar,trans_pn,amp_v,g_amp, n_chan):
 
@@ -766,7 +770,7 @@ class TiledApertureBeamPropFast(TiledApertureBeamProp):
         I=np.abs(U_1)**2
         return I
     
-    def TiledAperture_2(self):
+    def TiledAperture_2(self,p_n,truc=None):
         """
         Simulate coherent beam combining with a tiled aperture.
 
@@ -796,7 +800,7 @@ class TiledApertureBeamPropFast(TiledApertureBeamProp):
         D=self.d_*1e3
         a=D*NP/Dx
         mDr=0
-        w=0.85*Ra
+        w=0.85*Ra if w is None else truc*Ra
 
         if self.n_channel == 7:
             NL=1
@@ -817,12 +821,11 @@ class TiledApertureBeamPropFast(TiledApertureBeamProp):
 
         zmm = self.Z*1e3
         zm = zmm*1e-3
-        phNs = self.p_n
+        phNs = self.p_n if p_n is None else p_n
 
         w0 = w
         
-        U,coord = super().sourceTAC_final(lambda_,w0,Ra,a,NL,Dx,NP,mDr,zm,m,Rc,phNs,self.Kvar,self.trans_pn,\
-                                       self.amp_v,self.g_amp,self.n_channel)
+        U = super().sourceTAC_final(lambda_,w0,Ra,a,NL,Dx,NP,mDr,zm,m,Rc,phNs,self.Kvar,self.trans_pn,self.amp_v,self.g_amp,self.n_channel)
         U_ = U.cpu().numpy()
         # pib_ = PIB(np.abs(U_)**2,1024,1024,1023,pix_size)
         # print('Input Power: ', np.real(pib_))
@@ -834,11 +837,14 @@ class TiledApertureBeamPropFast(TiledApertureBeamProp):
 
         # Up_f = Up.cpu().numpy()
 
-        return U_,Up,coord.reshape(self.n_channel,2).astype(int)
-    def TiledAperture_mod(self,H1=None): #TODO: Update the Description
+        return U_,Up#,coord.reshape(self.n_channel,2).astype(int)
+    def TiledAperture_mod(self,phns,H1=None,truc=None): #TODO: Update the Description
         """
         Simulate coherent beam combining with a tiled aperture.
-
+        Input:
+        - phns (list): The random phase fluctuations are passed into the function.
+        - H1 (torch tensor): Propagation Kernel.
+        - trunc (float): Truncation Factor which is Waist radius of the Gaussian beam by aperture size (Ra).
         Returns:
         - U_ (numpy array): Initial complex amplitude distribution of the source array.
         - Up (torch tensor): Final complex amplitude distribution after propagation.
@@ -865,7 +871,7 @@ class TiledApertureBeamPropFast(TiledApertureBeamProp):
         D=self.d_*1e3
         a=D*NP/Dx
         mDr=0
-        w=0.85*Ra
+        w=0.85*Ra if w is None else truc*Ra
 
         if self.n_channel == 7:
             NL=1
@@ -886,7 +892,7 @@ class TiledApertureBeamPropFast(TiledApertureBeamProp):
 
         zmm = self.Z*1e3
         zm = zmm*1e-3
-        phNs = self.p_n
+        phNs = self.p_n if phns is None else phns
 
         w0 = w
 
@@ -898,6 +904,8 @@ class TiledApertureBeamPropFast(TiledApertureBeamProp):
 
         phy_x = Dx
         phy_y = Dx
+        # if H1 is None:
+        #     H1 = self.H1
 
         Up = self.PropAngSpecBandLimF_loop(U,H1)  #final field z_prop
 

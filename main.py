@@ -64,7 +64,7 @@ if __name__ == '__main__':
     pib_val = []
     Tac = TiledApertureBeamPropFast(im_size,pix_size,n_channel,np.zeros(n_channel),Kvar,Z,trans_pn,amp_v,g_amp,a,d)
     H1 = Tac.PropAngSpecBandLimF_kernel((im_size,im_size),lambda_,phyx,Z) ## For Loop 
-    U_in,Up,coord = Tac.TiledAperture_2() ## Normal 
+    U_in,Up = Tac.TiledAperture_2() ## Normal 
     U_in,Up,coord = Tac.TiledAperture_mod(H1) ## For Loop 
     ## Alternatively 
     Tac.iterations_setup() ### Run this at the start of the loop 
