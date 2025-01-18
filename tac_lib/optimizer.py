@@ -1,5 +1,4 @@
 from .common_imports import *
-
 class Optimizer:
     def __init__(self,algotype='adam',gain=0.1,f_ctrl=1,upperV=9.5,lowerV=0.01,resetV=5):
        self.gain = gain
@@ -24,7 +23,9 @@ class Optimizer:
         m_hat = self.m/(1-self.beta1**(ii+1)) # bias correction
         v_hat = self.v/(1-self.beta2**(ii+1)) # bias correction
         self.V += self.gain*m_hat/(np.sqrt(v_hat)+self.eps)
-
+    def spgd(self,I_plus,I_minus,ii):
+        grad = I_plus - I_minus
+        self.V += self.gain*grad*self.del_V
 def optimizer(self,I_plus,I_minus,ii,resetV=5,upperV=9.5,lowerV=0.01):
         """Optimizer Module 
 
