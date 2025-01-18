@@ -764,13 +764,13 @@ class TiledApertureBeamPropFast(TiledApertureBeamProp):
         """
         U_ = T.zeros_like(U).to(self.device)
         phNs = T.tensor(noise).to(self.device)
-        for idx, c in enumerate(coord):
+        for idx, c in enumerate(coord if coord is not None else self.coord):
             U_ += T.roll(U,shifts=(c[0],c[1]),dims=(0,1))*T.exp(1j*phNs[idx])
         U_1 = U_.cpu().numpy()
         I=np.abs(U_1)**2
         return I
     
-    def TiledAperture_2(self,p_n,truc=None):
+    def TiledAperture_2(self,p_n):
         """
         Simulate coherent beam combining with a tiled aperture.
 
@@ -800,7 +800,7 @@ class TiledApertureBeamPropFast(TiledApertureBeamProp):
         D=self.d_*1e3
         a=D*NP/Dx
         mDr=0
-        w=0.85*Ra if w is None else truc*Ra
+        w=0.85*Ra if self.truc is None else self.truc*Ra
 
         if self.n_channel == 7:
             NL=1
@@ -871,7 +871,7 @@ class TiledApertureBeamPropFast(TiledApertureBeamProp):
         D=self.d_*1e3
         a=D*NP/Dx
         mDr=0
-        w=0.85*Ra if w is None else truc*Ra
+        w=0.85*Ra if truc is None else truc*Ra
 
         if self.n_channel == 7:
             NL=1
@@ -910,8 +910,8 @@ class TiledApertureBeamPropFast(TiledApertureBeamProp):
         Up = self.PropAngSpecBandLimF_loop(U,H1)  #final field z_prop
 
         # Up_f = Up.cpu().numpy()
-
-        return U_,Up,coord.reshape(self.n_channel,2).astype(int)
+        self.coord = coord.reshape(self.n_channel,2).astype(int)
+        return U_,Up,self.coord#.reshape(self.n_channel,2).astype(int)
     
     def CircMask(self,shape,Xc,Yc,Roc):
         """
