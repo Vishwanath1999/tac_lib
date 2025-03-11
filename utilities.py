@@ -164,7 +164,7 @@ class Utilities:
 
         return si_n.cpu().clone().detach().numpy()
     
-    def plot_pib(self,pib_val, pib_n, title=None, name=None, t=None):
+    def plot_pib(self,pib_val, pib_n=1, title=None, name=None, t=None):
         """
         Plot the normalized Point Intensity Behavior (PIB) values over time or steps.
 
